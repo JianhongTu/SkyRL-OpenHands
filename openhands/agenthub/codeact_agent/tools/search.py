@@ -13,6 +13,7 @@ _SEARCH_ENTITY_DESCRIPTION = """
   Usage combinations:
     - search_terms only: searches across all Python files (or pattern-matched files)
     - search_terms + file_path_or_pattern: limits search to specific file(s) matching pattern
+    - line_nums + file_path_or_pattern: extracts context around specific lines in one file
   
   Example:
     <function=search>
@@ -26,6 +27,11 @@ _SEARCH_ENTITY_DESCRIPTION = """
 
     <function=search>
     <parameter=search_terms>["aiohttp/client.py:ClientSession.__init__"]</parameter>
+    </function>
+
+    <function=search>
+    <parameter=file_path_or_pattern>/testbed/aiohttp/client.py</parameter>
+    <parameter=line_nums>[42,43]</parameter>
     </function>
 """
 
@@ -52,8 +58,13 @@ def create_search_files_tool(
                         'description': 'A glob pattern or specific relative file path used to filter search results '
                         'to particular files or directories. Defaults to "**/*.py", meaning all Python files are searched by default.'
                     },
+                    'line_nums': {
+                        'type': 'array',
+                        'items': {'type': 'integer'},
+                        'description': 'Specific line numbers to extract context from. Use only with a concrete '
+                        'file_path_or_pattern that points to a single file.',
+                    },
                 },
-                'required': ['search_terms'],
             },
         ),
     )

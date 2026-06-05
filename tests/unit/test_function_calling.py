@@ -14,6 +14,7 @@ from openhands.events.action import (
     FileEditAction,
     FileReadAction,
     IPythonRunCellAction,
+    SearchAction,
 )
 from openhands.events.event import FileEditSource, FileReadSource
 
@@ -188,6 +189,30 @@ def test_web_read_missing_url():
     with pytest.raises(FunctionCallValidationError) as exc_info:
         response_to_actions(response)
     assert 'Missing required argument "url"' in str(exc_info.value)
+
+
+def test_search_with_line_nums_valid():
+    """Test search with line number context arguments."""
+    response = create_mock_response(
+        'search',
+        {'line_nums': [42, 43], 'file_path_or_pattern': '/path/to/file.py'},
+    )
+    actions = response_to_actions(response)
+    assert len(actions) == 1
+    assert isinstance(actions[0], SearchAction)
+    assert actions[0].line_nums == [42, 43]
+    assert actions[0].search_terms is None
+    assert actions[0].file_path_or_pattern == '/path/to/file.py'
+
+
+def test_search_missing_terms_and_lines():
+    """Test search requires either search terms or line numbers."""
+    response = create_mock_response('search', {})
+    with pytest.raises(FunctionCallValidationError) as exc_info:
+        response_to_actions(response)
+    assert 'Missing required argument "search_terms" or "line_nums"' in str(
+        exc_info.value
+    )
 
 
 def test_invalid_json_arguments():

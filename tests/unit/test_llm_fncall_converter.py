@@ -476,6 +476,21 @@ def test_infer_fncall_on_noncall_model():
     assert converted_fncall_messages[-1] == FNCALL_RESPONSE_MESSAGE
 
 
+def test_infer_fncall_repairs_missing_function_stopword():
+    response_message_from_llm_inference = copy.deepcopy(NON_FNCALL_RESPONSE_MESSAGE)
+    response_message_from_llm_inference['content'][0][
+        'text'
+    ] = response_message_from_llm_inference['content'][0]['text'].replace(
+        '\n</function>', ''
+    )
+
+    all_nonfncall_messages = NON_FNCALL_MESSAGES + [response_message_from_llm_inference]
+    converted_fncall_messages = convert_non_fncall_messages_to_fncall_messages(
+        all_nonfncall_messages, FNCALL_TOOLS
+    )
+    assert converted_fncall_messages[-1] == FNCALL_RESPONSE_MESSAGE
+
+
 def test_convert_from_multiple_tool_calls_to_single_tool_call_messages():
     # Test case with multiple tool calls in one message
     input_messages = [

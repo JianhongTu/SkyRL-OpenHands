@@ -1,4 +1,6 @@
+import json
 import os
+import shlex
 import tempfile
 import threading
 from pathlib import Path
@@ -343,10 +345,10 @@ class ActionExecutionClient(Runtime):
         path = action.path
         view_range = action.view_range
         concise = action.concise
-        cmd = f"str_replace_editor view --path '{path}'"
+        cmd = f'str_replace_editor view --path {shlex.quote(path)}'
         if view_range is not None:
             view_range_str = f"[{view_range[0]}, {view_range[1]}]"
-            cmd += f" --view_range '{view_range_str}'"
+            cmd += f' --view_range {shlex.quote(view_range_str)}'
         if concise:
             cmd += ' --concise True'
         cmd_action = CmdRunAction(command=cmd)
@@ -405,13 +407,17 @@ class ActionExecutionClient(Runtime):
         # if line_nums is not None:
         #     line_nums_str = '[' + ','.join([str(x) for x in line_nums]) + ']'
         #     cmd += f" --line_nums '{line_nums_str}'"
-        import json
-        cmd_parts = ["search", "--file_path_or_pattern", f"'{file_path_or_pattern}'"]
+        cmd_parts = [
+            'search',
+            '--file_path_or_pattern',
+            shlex.quote(file_path_or_pattern),
+        ]
         if search_terms is not None:
-            cmd_parts += ["--search_terms", f"'{json.dumps(search_terms)}'"]
+            cmd_parts += ['--search_terms', shlex.quote(json.dumps(search_terms))]
+        if line_nums is not None:
+            cmd_parts += ['--line_nums', shlex.quote(json.dumps(line_nums))]
 
         cmd = " ".join(cmd_parts)
-        print(f"cmd: {cmd}")
         cmd_action = CmdRunAction(command=cmd)
         return self.send_action_for_execution(cmd_action)
 

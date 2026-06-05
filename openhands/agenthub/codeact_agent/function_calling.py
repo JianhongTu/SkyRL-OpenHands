@@ -134,9 +134,9 @@ def response_to_actions(
                 #     python_only=arguments.get('python_only', 'false'),
                 # )
                 # either search_terms or line_nums must be provided
-                if 'search_terms' not in arguments:
+                if 'search_terms' not in arguments and 'line_nums' not in arguments:
                     raise FunctionCallValidationError(
-                        f'Missing required argument "search_terms" in tool call {tool_call.function.name}'
+                        f'Missing required argument "search_terms" or "line_nums" in tool call {tool_call.function.name}'
                     )
                 # if not isinstance(arguments['search_terms'], list):
                 #     raise FunctionCallValidationError(
@@ -145,8 +145,32 @@ def response_to_actions(
                 search_terms = arguments.get('search_terms', None)
                 if isinstance(search_terms, str):
                     search_terms = [search_terms]
+                if search_terms is not None and (
+                    not isinstance(search_terms, list)
+                    or not all(
+                        isinstance(search_term, str) for search_term in search_terms
+                    )
+                ):
+                    raise FunctionCallValidationError(
+                        f'Invalid format for argument "search_terms" in tool call {tool_call.function.name}. Expected a list of strings.'
+                    )
+                line_nums = arguments.get('line_nums', None)
+                if type(line_nums) is int:
+                    line_nums = [line_nums]
+                if line_nums is not None and (
+                    not isinstance(line_nums, list)
+                    or not all(type(line_num) is int for line_num in line_nums)
+                ):
+                    raise FunctionCallValidationError(
+                        f'Invalid format for argument "line_nums" in tool call {tool_call.function.name}. Expected a list of integers.'
+                    )
+                if search_terms is None and line_nums is None:
+                    raise FunctionCallValidationError(
+                        f'Missing required argument "search_terms" or "line_nums" in tool call {tool_call.function.name}'
+                    )
                 action = SearchAction(
                     search_terms=search_terms,
+                    line_nums=line_nums,
                     file_path_or_pattern=arguments.get(
                         'file_path_or_pattern', '**/*.py'
                     ),
