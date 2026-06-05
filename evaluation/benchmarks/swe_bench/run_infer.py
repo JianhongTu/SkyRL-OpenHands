@@ -2,6 +2,7 @@ import asyncio
 import copy
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Literal
@@ -61,7 +62,7 @@ from openhands.utils.shutdown_listener import sleep_if_should_continue
 
 USE_HINT_TEXT = os.environ.get('USE_HINT_TEXT', 'false').lower() == 'true'
 RUN_WITH_BROWSING = os.environ.get('RUN_WITH_BROWSING', 'false').lower() == 'true'
-BenchMode = Literal['swe', 'swt', 'swt-ci']
+BenchMode = Literal['swe', 'swt', 'swt-ci', 'r2e']
 
 
 AGENT_CLS_TO_FAKE_USER_RESPONSE_FN = {
@@ -69,14 +70,33 @@ AGENT_CLS_TO_FAKE_USER_RESPONSE_FN = {
 }
 
 
-# def _get_swebench_workspace_dir_name(instance: pd.Series) -> str:
-#     return f'{instance.repo}__{instance.version}'.replace('/', '__')
-def _get_swebench_workspace_dir_name(instance: pd.Series) -> str:
+def _is_r2e_dataset(dataset: str | None) -> bool:
+    return dataset is not None and 'r2e-gym' in dataset.lower()
+
+
+def _is_r2e_metadata(metadata: EvalMetadata) -> bool:
+    return metadata.details.get('mode') == 'r2e' or _is_r2e_dataset(
+        metadata.dataset
+    )
+
+
+def _get_swebench_workspace_dir_name(
+    instance: pd.Series, dataset: str | None = None
+) -> str:
+    if _is_r2e_dataset(dataset):
+        return '/testbed'
     return f'{instance.repo}__{getattr(instance, "version", "null")}'.replace('/', '__')
 
 
 def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageAction:
-    workspace_dir_name = _get_swebench_workspace_dir_name(instance)
+    workspace_dir_name = _get_swebench_workspace_dir_name(
+        instance, 'r2e-gym' if _is_r2e_metadata(metadata) else metadata.dataset
+    )
+    uploaded_files = (
+        workspace_dir_name
+        if workspace_dir_name.startswith('/')
+        else f'/workspace/{workspace_dir_name}'
+    )
     mode = metadata.details['mode']
     if mode.startswith('swt'):
         test_instructions = (
@@ -86,7 +106,7 @@ def get_instruction(instance: pd.Series, metadata: EvalMetadata) -> MessageActio
         )
         instruction = f"""\
 <uploaded_files>
-/workspace/{workspace_dir_name}
+{uploaded_files}
 </uploaded_files>
 I've uploaded a python code repository in the directory {workspace_dir_name}. Consider the following issue description:
 
@@ -108,7 +128,7 @@ Follow these steps to reproduce the issue:
     else:
         instruction = f"""
 <uploaded_files>
-/workspace/{workspace_dir_name}
+{uploaded_files}
 </uploaded_files>
 
 I've uploaded a python code repository in the directory {workspace_dir_name}. Consider the following issue description:
@@ -120,7 +140,7 @@ I've uploaded a python code repository in the directory {workspace_dir_name}. Co
 Can you help me implement the necessary changes to the repository so that the requirements specified in the <issue_description> are met?
 I've already taken care of all changes to any of the test files described in the <issue_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
 Also the development Python environment is already set up for you (i.e., all dependencies already installed), so you don't need to install other packages.
-Your task is to make the minimal changes to non-test files in the /workspace/{workspace_dir_name} directory to ensure the <issue_description> is satisfied.
+Your task is to make the minimal changes to non-test files in the {uploaded_files} directory to ensure the <issue_description> is satisfied.
 
 Follow these phases to resolve the issue:
 
@@ -221,13 +241,15 @@ def get_instance_docker_image(instance, data_source) -> str:
     if 'swe-smith' in data_source:
         image_name = instance['image_name']
         return f"jyangballin/{image_name.replace('__', '_1776_')}"
+    if _is_r2e_dataset(data_source):
+        return instance['instance_id']
 
     instance_id = instance['instance_id']
     image_name = 'sweb.eval.x86_64.' + instance_id
     image_name = image_name.replace(
         '__', '_s_'
     )  # to comply with docker image naming convention
-    return (DOCKER_IMAGE_PREFIX.rstrip('/') + '/' + image_name).lower()
+    return (DEFAULT_DOCKER_IMAGE_PREFIX.rstrip('/') + '/' + image_name).lower()
 
 
 def get_config(
@@ -235,11 +257,8 @@ def get_config(
     metadata: EvalMetadata,
 ) -> AppConfig:
     # We use a different instance image for the each instance of swe-bench eval
-    use_swebench_official_image = 'swe-gym' not in metadata.dataset.lower()
-    base_container_image = get_instance_docker_image(
-        instance,
-        metadata.dataset.lower(),
-    )
+    data_source = 'r2e-gym' if _is_r2e_metadata(metadata) else metadata.dataset.lower()
+    base_container_image = get_instance_docker_image(instance, data_source)
     logger.info(
         f'Using instance container image: {base_container_image}. '
         f'Please make sure this image exists. '
@@ -295,7 +314,9 @@ def initialize_runtime(
     logger.info('-' * 30)
     logger.info('BEGIN Runtime Initialization Fn')
     logger.info('-' * 30)
-    workspace_dir_name = _get_swebench_workspace_dir_name(instance)
+    workspace_dir_name = _get_swebench_workspace_dir_name(
+        instance, 'r2e-gym' if _is_r2e_metadata(metadata) else metadata.dataset
+    )
     obs: CmdOutputObservation
 
     # Set instance id and git configuration
@@ -346,11 +367,16 @@ def initialize_runtime(
         # Copy the file to the desired location
         runtime.copy_to(temp_file_path, '/swe_util/eval_data/instances/')
 
-        # inject the instance swe entry
-        runtime.copy_to(
-            str(os.path.join(script_dir, 'scripts/setup/instance_swe_entry.sh')),
-            '/swe_util/',
-        )
+        if _is_r2e_metadata(metadata):
+            runtime.copy_to(
+                str(os.path.join(script_dir, 'scripts/setup/instance_r2e_entry.sh')),
+                '/swe_util/',
+            )
+        else:
+            runtime.copy_to(
+                str(os.path.join(script_dir, 'scripts/setup/instance_swe_entry.sh')),
+                '/swe_util/',
+            )
 
     action = CmdRunAction(command='cat ~/.bashrc')
     action.set_hard_timeout(600)
@@ -368,49 +394,64 @@ def initialize_runtime(
         logger.error(f'Failed to source ~/.bashrc: {str(obs)}')
     assert_and_raise(obs.exit_code == 0, f'Failed to source ~/.bashrc: {str(obs)}')
 
-    action = CmdRunAction(command='source /swe_util/instance_swe_entry.sh')
+    if _is_r2e_metadata(metadata):
+        action = CmdRunAction(command='source /swe_util/instance_r2e_entry.sh')
+    else:
+        action = CmdRunAction(command='source /swe_util/instance_swe_entry.sh')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
     assert_and_raise(
         obs.exit_code == 0,
-        f'Failed to source /swe_util/instance_swe_entry.sh: {str(obs)}',
+        f'Failed to source instance entry script: {str(obs)}',
     )
 
-    action = CmdRunAction(command=f'cd /workspace/{workspace_dir_name}')
+    cd_workspace = (
+        workspace_dir_name
+        if workspace_dir_name.startswith('/')
+        else f'/workspace/{workspace_dir_name}'
+    )
+    action = CmdRunAction(command=f'cd {cd_workspace}')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
     logger.info(obs, extra={'msg_type': 'OBSERVATION'})
     assert_and_raise(
         obs.exit_code == 0,
-        f'Failed to cd to /workspace/{workspace_dir_name}: {str(obs)}',
+        f'Failed to cd to {cd_workspace}: {str(obs)}',
     )
 
-    # git fetch needed by swe-smith
-    action = CmdRunAction(command='git fetch')
-    action.set_hard_timeout(600)
-    logger.info(action, extra={'msg_type': 'ACTION'})
-    obs = runtime.run_action(action)
-    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to git fetch: {str(obs)}')
+    # Preserve the existing SWE-Bench initialization path. R2E images are already
+    # prepared in /testbed and may not have remotes configured.
+    if not _is_r2e_metadata(metadata):
+        action = CmdRunAction(command='git fetch')
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(obs.exit_code == 0, f'Failed to git fetch: {str(obs)}')
 
-    action = CmdRunAction(command='git reset --hard')
-    action.set_hard_timeout(600)
-    logger.info(action, extra={'msg_type': 'ACTION'})
-    obs = runtime.run_action(action)
-    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}')
+    if not _is_r2e_metadata(metadata):
+        action = CmdRunAction(command='git reset --hard')
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(
+            obs.exit_code == 0, f'Failed to git reset --hard: {str(obs)}'
+        )
 
-    action = CmdRunAction(
-        command='for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
-    )
-    action.set_hard_timeout(600)
-    logger.info(action, extra={'msg_type': 'ACTION'})
-    obs = runtime.run_action(action)
-    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-    assert_and_raise(obs.exit_code == 0, f'Failed to remove git remotes: {str(obs)}')
+        action = CmdRunAction(
+            command='for remote_name in $(git remote); do git remote remove "${remote_name}"; done'
+        )
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(
+            obs.exit_code == 0, f'Failed to remove git remotes: {str(obs)}'
+        )
 
     if metadata.details['mode'] == 'swt-ci':
         # set up repo
@@ -449,6 +490,19 @@ def initialize_runtime(
             f'Expected to find python interpreter from testbed, but got: {str(obs)}',
         )
 
+    if _is_r2e_metadata(metadata):
+        clean_bundle_host_zip = runtime.copy_from('/swe_util/r2e_original')
+        metadata.details['r2e_clean_bundle_host_zip'] = str(clean_bundle_host_zip)
+        action = CmdRunAction(command='rm -rf /swe_util/r2e_original')
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(
+            isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
+            f'Failed to remove in-container R2E clean tests: {str(obs)}',
+        )
+
     logger.info('-' * 30)
     logger.info('END Runtime Initialization Fn')
     logger.info('-' * 30)
@@ -457,6 +511,7 @@ def initialize_runtime(
 def complete_runtime(
     runtime: Runtime,
     instance: pd.Series,  # this argument is not required, but it is used to get the workspace_dir_name
+    metadata: EvalMetadata,
 ) -> dict[str, Any]:
     """Complete the runtime for the agent.
 
@@ -468,9 +523,16 @@ def complete_runtime(
     logger.info('BEGIN Runtime Completion Fn')
     logger.info('-' * 30)
     obs: CmdOutputObservation
-    workspace_dir_name = _get_swebench_workspace_dir_name(instance)
+    workspace_dir_name = _get_swebench_workspace_dir_name(
+        instance, 'r2e-gym' if _is_r2e_metadata(metadata) else metadata.dataset
+    )
+    cd_workspace = (
+        workspace_dir_name
+        if workspace_dir_name.startswith('/')
+        else f'/workspace/{workspace_dir_name}'
+    )
 
-    action = CmdRunAction(command=f'cd /workspace/{workspace_dir_name}')
+    action = CmdRunAction(command=f'cd {cd_workspace}')
     action.set_hard_timeout(600)
     logger.info(action, extra={'msg_type': 'ACTION'})
     obs = runtime.run_action(action)
@@ -485,7 +547,7 @@ def complete_runtime(
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
 
         # Then run the command again
-        action = CmdRunAction(command=f'cd /workspace/{workspace_dir_name}')
+        action = CmdRunAction(command=f'cd {cd_workspace}')
         action.set_hard_timeout(600)
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
@@ -500,7 +562,7 @@ def complete_runtime(
         logger.info(obs, extra={'msg_type': 'OBSERVATION'})
 
         # Then run the command again
-        action = CmdRunAction(command=f'cd /workspace/{workspace_dir_name}')
+        action = CmdRunAction(command=f'cd {cd_workspace}')
         action.set_hard_timeout(600)
         logger.info(action, extra={'msg_type': 'ACTION'})
         obs = runtime.run_action(action)
@@ -508,8 +570,72 @@ def complete_runtime(
 
     assert_and_raise(
         isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
-        f'Failed to cd to /workspace/{workspace_dir_name}: {str(obs)}',
+        f'Failed to cd to {cd_workspace}: {str(obs)}',
     )
+
+    if _is_r2e_metadata(metadata):
+        clean_bundle_host_zip = metadata.details.get('r2e_clean_bundle_host_zip')
+        assert_and_raise(
+            isinstance(clean_bundle_host_zip, str)
+            and os.path.exists(clean_bundle_host_zip),
+            'Missing host-side clean R2E test bundle.',
+        )
+        action = CmdRunAction(command='rm -rf /swe_util/r2e_original_host')
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(
+            isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
+            f'Failed to clear R2E clean restore directory: {str(obs)}',
+        )
+        runtime.copy_to(clean_bundle_host_zip, '/swe_util/r2e_original_host')
+
+        action = CmdRunAction(
+            command=(
+                'test -f /swe_util/r2e_original_host/run_tests.sh && '
+                'test -d /swe_util/r2e_original_host/r2e_tests && '
+                'rm -rf /root/run_tests.sh /root/r2e_tests /testbed/r2e_tests /r2e_tests && '
+                'cp -a /swe_util/r2e_original_host/run_tests.sh /root/run_tests.sh && '
+                'cp -a /swe_util/r2e_original_host/r2e_tests /root/r2e_tests && '
+                'ln -s /root/r2e_tests /testbed/r2e_tests && '
+                'ln -s /root/r2e_tests /r2e_tests && '
+                'chmod +x /root/run_tests.sh && '
+                'rm -rf /swe_util/r2e_original_host'
+            )
+        )
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        assert_and_raise(
+            isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
+            f'Failed to restore clean R2E tests: {str(obs)}',
+        )
+
+        action = CmdRunAction(command='bash /root/run_tests.sh')
+        action.set_hard_timeout(600)
+        logger.info(action, extra={'msg_type': 'ACTION'})
+        obs = runtime.run_action(action)
+        logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+        if not isinstance(obs, CmdOutputObservation):
+            logger.warning(
+                f'Running bash /root/run_tests.sh got unexpected observation type: {type(obs).__name__}'
+            )
+            return {'reward': 0.0, 'finish_reason': 'error_evaluation'}
+
+        output = re.sub(r'\x1b\[[0-9;]*m|\r', '', obs.content)
+        from evaluation.benchmarks.swe_bench.r2e_utils import (
+            get_reward,
+            parse_log_pytest,
+        )
+
+        results = parse_log_pytest(output)
+        return {
+            'reward': get_reward(results, instance, output),
+            'test_output': output,
+            'parsed_tests': results,
+        }
 
     action = CmdRunAction(command='git config --global core.pager ""')
     action.set_hard_timeout(600)
@@ -680,21 +806,25 @@ def process_instance(
 
         # ======= THIS IS SWE-Bench specific =======
         # Get git patch
-        return_val = complete_runtime(runtime, instance)
-        git_patch = return_val['git_patch']
-        logger.info(
-            f'Got git diff for instance {instance.instance_id}:\n--------\n{git_patch}\n--------'
-        )
+        return_val = complete_runtime(runtime, instance, metadata)
+        git_patch = return_val.get('git_patch')
+        if git_patch is not None:
+            logger.info(
+                f'Got git diff for instance {instance.instance_id}:\n--------\n{git_patch}\n--------'
+            )
     finally:
         runtime.close()
+        clean_bundle_host_zip = metadata.details.get('r2e_clean_bundle_host_zip')
+        if isinstance(clean_bundle_host_zip, str) and os.path.exists(
+            clean_bundle_host_zip
+        ):
+            os.unlink(clean_bundle_host_zip)
     # ==========================================
 
     # ======= Attempt to evaluate the agent's edits =======
     # we use eval_infer.sh to evaluate the agent's edits, not here
     # because the agent may alter the environment / testcases
-    test_result = {
-        'git_patch': git_patch,
-    }
+    test_result = return_val
 
     # If you are working on some simpler benchmark that only evaluates the final model output (e.g., in a MessageAction)
     # You can simply get the LAST `MessageAction` from the returned `state.history` and parse it for evaluation.
@@ -744,6 +874,23 @@ def filter_dataset(dataset: pd.DataFrame, filter_column: str) -> pd.DataFrame:
     return dataset
 
 
+def normalize_swebench_test_columns(instances: pd.DataFrame) -> pd.DataFrame:
+    """Stringify SWE-Bench test-list columns when they are present.
+
+    R2E datasets do not carry PASS_TO_PASS/FAIL_TO_PASS. Keeping this helper a
+    no-op for those datasets preserves the common evaluation path without
+    requiring R2E rows to include SWE-Bench-only fields.
+    """
+    swe_test_columns = ['PASS_TO_PASS', 'FAIL_TO_PASS']
+    if len(instances) == 0 or not all(col in instances.columns for col in swe_test_columns):
+        return instances
+    if isinstance(instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str):
+        return instances
+    for col in swe_test_columns:
+        instances[col] = instances[col].apply(lambda x: str(x))
+    return instances
+
+
 if __name__ == '__main__':
     parser = get_parser()
     parser.add_argument(
@@ -762,19 +909,29 @@ if __name__ == '__main__':
         '--mode',
         type=str,
         default='swe',
-        choices=['swe', 'swt', 'swt-ci'],
-        help="mode to run the evaluation, either 'swe', 'swt', or 'swt-ci'",
+        choices=['swe', 'swt', 'swt-ci', 'r2e'],
+        help="mode to run the evaluation, one of 'swe', 'swt', 'swt-ci', or 'r2e'",
     )
     args, _ = parser.parse_known_args()
 
     # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
     # so we don't need to manage file uploading to OpenHands's repo
     dataset = load_dataset(args.dataset, split=args.split)
-    swe_bench_tests = filter_dataset(dataset.to_pandas(), 'instance_id')
+    swe_bench_tests = dataset.to_pandas()
     logger.info(
         f'Loaded dataset {args.dataset} with split {args.split}: {len(swe_bench_tests)} tasks'
     )
-    if 'SWE-Gym' in args.dataset:
+    if _is_r2e_dataset(args.dataset) or args.mode == 'r2e':
+        swe_bench_tests = swe_bench_tests.rename(
+            columns={
+                'docker_image': 'instance_id',
+                'repo_name': 'repo',
+                'commit_hash': 'base_commit',
+            }
+        )
+        swe_bench_tests = filter_dataset(swe_bench_tests, 'instance_id')
+    elif 'SWE-Gym' in args.dataset:
+        swe_bench_tests = filter_dataset(swe_bench_tests, 'instance_id')
         with open(
             os.path.join(
                 os.path.dirname(os.path.abspath(__file__)),
@@ -799,6 +956,8 @@ if __name__ == '__main__':
         logger.info(
             f'{len(swe_bench_tests)} tasks left after filtering for Swe-smith instances'
         )
+    else:
+        swe_bench_tests = filter_dataset(swe_bench_tests, 'instance_id')
 
     llm_config = None
     if args.llm_config:
@@ -828,6 +987,7 @@ if __name__ == '__main__':
 
     output_file = os.path.join(metadata.eval_output_dir, 'output.jsonl')
     print(f'### OUTPUT FILE: {output_file} ###')
+    is_r2e_eval = _is_r2e_metadata(metadata)
 
     # Run evaluation in iterative mode:
     # If a rollout fails to output AgentFinishAction, we will try again until it succeeds OR total 3 attempts have been made.
@@ -841,11 +1001,7 @@ if __name__ == '__main__':
     if not ITERATIVE_EVAL_MODE:
         # load the dataset
         instances = prepare_dataset(swe_bench_tests, output_file, args.eval_n_limit)
-        if len(instances) > 0 and not isinstance(
-            instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str
-        ):
-            for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
-                instances[col] = instances[col].apply(lambda x: str(x))
+        instances = normalize_swebench_test_columns(instances)
 
         run_evaluation(
             instances,
@@ -886,11 +1042,7 @@ if __name__ == '__main__':
             instances = prepare_dataset(
                 swe_bench_tests, cur_output_file, args.eval_n_limit, eval_ids=eval_ids
             )
-            if len(instances) > 0 and not isinstance(
-                instances['PASS_TO_PASS'][instances['PASS_TO_PASS'].index[0]], str
-            ):
-                for col in ['PASS_TO_PASS', 'FAIL_TO_PASS']:
-                    instances[col] = instances[col].apply(lambda x: str(x))
+            instances = normalize_swebench_test_columns(instances)
 
             # Run evaluation - but save them to cur_output_file
             logger.info(
@@ -917,19 +1069,25 @@ if __name__ == '__main__':
                 for line in f:
                     instance = json.loads(line)
                     try:
-                        history = [
-                            event_from_dict(event) for event in instance['history']
-                        ]
-                        critic_result = critic.evaluate(
-                            history, instance['test_result'].get('git_patch', '')
-                        )
-                        if not critic_result.success:
-                            instances_failed.append(instance['instance_id'])
+                        if is_r2e_eval:
+                            reward = instance.get('test_result', {}).get('reward')
+                            if reward != 1.0:
+                                instances_failed.append(instance['instance_id'])
+                        else:
+                            history = [
+                                event_from_dict(event) for event in instance['history']
+                            ]
+                            critic_result = critic.evaluate(
+                                history, instance['test_result'].get('git_patch', '')
+                            )
+                            if not critic_result.success:
+                                instances_failed.append(instance['instance_id'])
                     except Exception as e:
                         logger.error(
                             f'Error loading history for instance {instance["instance_id"]}: {e}'
                         )
-                        instances_failed.append(instance['instance_id'])
+                        if instance['instance_id'] not in instances_failed:
+                            instances_failed.append(instance['instance_id'])
             logger.info(
                 f'{len(instances_failed)} instances failed the current attempt {attempt}: {instances_failed}'
             )
@@ -957,11 +1115,13 @@ if __name__ == '__main__':
             with open(cur_output_file, 'r') as f:
                 for line in f:
                     instance = json.loads(line)
-                    # Also make sure git_patch is not empty - otherwise we fall back to previous attempt (empty patch is worse than anything else)
-                    if (
-                        instance['instance_id'] not in added_instance_ids
-                        and instance['test_result'].get('git_patch', '').strip()
-                    ):
+                    test_result = instance.get('test_result', {})
+                    has_usable_result = (
+                        'reward' in test_result
+                        if is_r2e_eval
+                        else bool(test_result.get('git_patch', '').strip())
+                    )
+                    if instance['instance_id'] not in added_instance_ids and has_usable_result:
                         fout.write(line)
                         added_instance_ids.add(instance['instance_id'])
             logger.info(

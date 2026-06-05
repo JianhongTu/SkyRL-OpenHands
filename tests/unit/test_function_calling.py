@@ -8,6 +8,7 @@ from litellm import ModelResponse
 from openhands.agenthub.codeact_agent.function_calling import response_to_actions
 from openhands.core.exceptions import FunctionCallValidationError
 from openhands.events.action import (
+    AgentFinishAction,
     BrowseInteractiveAction,
     BrowseURLAction,
     CmdRunAction,
@@ -17,6 +18,7 @@ from openhands.events.action import (
     SearchAction,
 )
 from openhands.events.event import FileEditSource, FileReadSource
+from openhands.events.serialization.event import event_to_dict
 
 
 def create_mock_response(function_name: str, arguments: dict) -> ModelResponse:
@@ -44,6 +46,89 @@ def create_mock_response(function_name: str, arguments: dict) -> ModelResponse:
             }
         ],
     )
+
+
+def create_text_response(content: str) -> ModelResponse:
+    return ModelResponse(
+        id='mock-id',
+        choices=[
+            {
+                'message': {
+                    'content': content,
+                    'role': 'assistant',
+                },
+                'index': 0,
+                'finish_reason': 'stop',
+            }
+        ],
+    )
+
+
+def test_qwen_tool_call_content_is_converted_to_action():
+    response = create_text_response(
+        'I will inspect the repo.\n<tool_call>\n'
+        '{"name": "execute_bash", "arguments": {"command": "ls"}}\n'
+        '</tool_call>'
+    )
+    actions = response_to_actions(response)
+    assert len(actions) == 1
+    assert isinstance(actions[0], CmdRunAction)
+    assert actions[0].command == 'ls'
+    assert actions[0].thought == 'I will inspect the repo.'
+    assert actions[0].tool_call_metadata.tool_call_id == 'toolu_01'
+
+
+def test_qwen_tool_call_action_metadata_is_serializable():
+    response = create_text_response(
+        '<tool_call>\n'
+        '{"name": "execute_bash", "arguments": {"command": "ls"}}\n'
+        '</tool_call>'
+    )
+    action = response_to_actions(response)[0]
+    serialized = event_to_dict(action)
+    tool_calls = serialized['tool_call_metadata']['model_response']['choices'][0][
+        'message'
+    ]['tool_calls']
+    assert tool_calls == [
+        {
+            'function': {'arguments': '{"command": "ls"}', 'name': 'execute_bash'},
+            'id': 'toolu_01',
+            'type': 'function',
+        }
+    ]
+
+
+def test_qwen_finish_requires_message_and_normalizes_bool():
+    response = create_text_response(
+        '<tool_call>\n'
+        '{"name": "finish", "arguments": {"message": "done", "task_completed": true}}\n'
+        '</tool_call>'
+    )
+    actions = response_to_actions(response)
+    assert len(actions) == 1
+    assert isinstance(actions[0], AgentFinishAction)
+    assert actions[0].final_thought == 'done'
+    assert actions[0].task_completed == 'true'
+
+
+def test_qwen_tool_call_rejects_trailing_text():
+    response = create_text_response(
+        '<tool_call>\n'
+        '{"name": "execute_bash", "arguments": {"command": "ls"}}\n'
+        '</tool_call>\nextra'
+    )
+    with pytest.raises(FunctionCallValidationError):
+        response_to_actions(response)
+
+
+def test_qwen_finish_rejects_missing_message():
+    response = create_text_response(
+        '<tool_call>\n'
+        '{"name": "finish", "arguments": {"task_completed": "true"}}\n'
+        '</tool_call>'
+    )
+    with pytest.raises(FunctionCallValidationError):
+        response_to_actions(response)
 
 
 def test_execute_bash_valid():
