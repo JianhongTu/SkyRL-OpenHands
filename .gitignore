@@ -1,0 +1,6 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+
+# Local uv lockfile; this repo uses poetry.lock
+uv.lock
