@@ -88,7 +88,7 @@ Este hash é construído a partir dos primeiros 16 dígitos do MD5 de:
 
 - O nome da imagem base sobre a qual a imagem foi construída (ex.: `nikolaik/python-nodejs:python3.12-nodejs22`)
 - O conteúdo do `pyproject.toml` incluído na imagem.
-- O conteúdo do `poetry.lock` incluído na imagem.
+- O conteúdo do `uv.lock` incluído na imagem.
 
 Isso efetivamente fornece um hash para as dependências do Openhands independente do código fonte.
 
@@ -103,7 +103,7 @@ Ao gerar uma imagem...
 - **Sem reconstrução**: O OpenHands primeiro verifica se existe uma imagem com a mesma **tag de fonte mais específica**. Se existir tal imagem,
   nenhuma construção é realizada - a imagem existente é usada.
 - **Reconstrução mais rápida**: O OpenHands verifica em seguida se existe uma imagem com a **tag de bloqueio genérica**. Se existir tal imagem,
-  o OpenHands constrói uma nova imagem baseada nela, ignorando todas as etapas de instalação (como `poetry install` e
+  o OpenHands constrói uma nova imagem baseada nela, ignorando todas as etapas de instalação (como `uv sync` e
   `apt-get`) exceto uma operação final para copiar o código fonte atual. A nova imagem é marcada apenas com uma
   tag de **fonte**.
 - **Reconstrução razoável**: Se nem uma tag de **fonte** nem de **bloqueio** existir, uma imagem será construída com base na imagem de tag **versionada**.

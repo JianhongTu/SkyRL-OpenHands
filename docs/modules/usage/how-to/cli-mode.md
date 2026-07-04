@@ -14,7 +14,7 @@ This mode is different from the [headless mode](headless-mode), which is non-int
 3. Launch an interactive OpenHands conversation from the command line:
 
 ```bash
-poetry run python -m openhands.cli.main
+uv run python -m openhands.cli.main
 ```
 
 This command opens an interactive prompt where you can type tasks or commands and get responses from OpenHands.

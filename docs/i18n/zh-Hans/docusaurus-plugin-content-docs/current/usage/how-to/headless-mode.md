@@ -11,7 +11,7 @@
 1. 确保您已按照[开发设置说明](https://github.com/All-Hands-AI/OpenHands/blob/main/Development.md)进行操作。
 2. 运行以下命令：
 ```bash
-poetry run python -m openhands.core.main -t "write a bash script that prints hi"
+uv run python -m openhands.core.main -t "write a bash script that prints hi"
 ```
 
 您需要确保通过环境变量或[`config.toml`文件](https://github.com/All-Hands-AI/OpenHands/blob/main/config.template.toml)设置您的模型、API密钥和其他设置。

@@ -12,7 +12,7 @@ OpenHands 可以在交互式 CLI 模式下运行，允许用户通过命令行�
 2. 运行以下命令：
 
 ```bash
-poetry run python -m openhands.core.cli
+uv run python -m openhands.core.cli
 ```
 
 此命令将启动一个交互式会话，您可以在其中输入任务并接收来自 OpenHands 的响应。

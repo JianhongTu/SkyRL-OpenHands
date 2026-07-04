@@ -11,7 +11,7 @@ To run OpenHands in headless mode with Python:
 1. Ensure you have followed the [Development setup instructions](https://github.com/All-Hands-AI/OpenHands/blob/main/Development.md).
 2. Run the following command:
 ```bash
-poetry run python -m openhands.core.main -t "write a bash script that prints hi"
+uv run python -m openhands.core.main -t "write a bash script that prints hi"
 ```
 
 You'll need to be sure to set your model, API key, and other settings via environment variables

@@ -98,7 +98,7 @@ data:
     tmux new-session -d -s 0
     export EXTERNAL_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me)
     export TIMESTAMP=$(date +%s)
-    tmux send-keys -t 0 "poetry run python -m openhands.runtime.remote_runtime_server.main --host $EXTERNAL_IP --port 3000  2>&1 | tee /data/${POD_NAME}_${TIMESTAMP}.log" C-m
+    tmux send-keys -t 0 "uv run python -m openhands.runtime.remote_runtime_server.main --host $EXTERNAL_IP --port 3000  2>&1 | tee /data/${POD_NAME}_${TIMESTAMP}.log" C-m
 
     # Keep the container running
     sleep infinity

@@ -44,7 +44,7 @@ From the root of the repository, you can run the following:
 
 ```bash
 $ export ANTHROPIC_API_KEY=<your_api_key>
-$ poetry run python docs/translation_updater.py
+$ uv run python docs/translation_updater.py
 # ...
 # Change detected in docs/modules/usage/getting-started.mdx
 # translating... docs/modules/usage/getting-started.mdx pt-BR

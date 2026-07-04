@@ -62,7 +62,7 @@ export SANDBOX_VOLUMES=/chemin/vers/votre/projet:/workspace:rw
 # export SANDBOX_VOLUMES=/chemin/vers/votre/projet:/workspace:rw,/chemin/vers/données/référence:/data:ro
 
 # Démarrer OpenHands
-poetry run python -m openhands.core.main -t "écrire un script bash qui affiche bonjour"
+uv run python -m openhands.core.main -t "écrire un script bash qui affiche bonjour"
 ```
 
 ## Cas d'utilisation

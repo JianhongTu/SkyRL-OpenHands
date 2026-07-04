@@ -12,7 +12,7 @@ Pour démarrer une session interactive OpenHands via la ligne de commande :
 2. Exécutez la commande suivante :
 
 ```bash
-poetry run python -m openhands.core.cli
+uv run python -m openhands.core.cli
 ```
 
 Cette commande lancera une session interactive où vous pourrez saisir des tâches et recevoir des réponses d'OpenHands.

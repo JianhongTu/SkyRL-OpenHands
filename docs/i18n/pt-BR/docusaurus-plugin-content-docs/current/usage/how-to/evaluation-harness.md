@@ -33,7 +33,7 @@ temperature = 0.0
 O OpenHands pode ser executado a partir da linha de comando usando o seguinte formato:
 
 ```bash
-poetry run python ./openhands/core/main.py \
+uv run python ./openhands/core/main.py \
         -i <max_iterations> \
         -t "<task_description>" \
         -c <agent_class> \
@@ -43,7 +43,7 @@ poetry run python ./openhands/core/main.py \
 Por exemplo:
 
 ```bash
-poetry run python ./openhands/core/main.py \
+uv run python ./openhands/core/main.py \
         -i 10 \
         -t "Write me a bash script that prints hello world." \
         -c CodeActAgent \

@@ -62,7 +62,7 @@ export SANDBOX_VOLUMES=/caminho/para/seu/projeto:/workspace:rw
 # export SANDBOX_VOLUMES=/caminho/para/seu/projeto:/workspace:rw,/caminho/para/dados/referencia:/data:ro
 
 # Inicie o OpenHands
-poetry run python -m openhands.core.main -t "escreva um script bash que imprima oi"
+uv run python -m openhands.core.main -t "escreva um script bash que imprima oi"
 ```
 
 ## Casos de Uso

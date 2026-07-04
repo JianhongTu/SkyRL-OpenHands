@@ -20,16 +20,17 @@ On MacOS, you should install Docker Desktop and start the application.
 
 ### 1. Install dependencies
 
-You can install the dependencies with poetry:
+Create a local virtual environment and install dependencies with uv:
 
 ```bash
-poetry install
+uv venv --python 3.12 .venv
+uv sync
 ```
 
 ### 2. Launch the server
 
 ```bash
-ALLHANDS_API_KEY=<your_api_key> python -m openhands.runtime.remote_runtime_server.main --host ${HOST} --port ${PORT}
+ALLHANDS_API_KEY=<your_api_key> .venv/bin/python -m openhands.runtime.remote_runtime_server.main --host ${HOST} --port ${PORT}
 ```
 
 Make sure to set `HOST` to be the _public_ IP for your machine! `ALLHANDS_API_KEY` can be any key of your choice - this is used for authentication during evaluation. 

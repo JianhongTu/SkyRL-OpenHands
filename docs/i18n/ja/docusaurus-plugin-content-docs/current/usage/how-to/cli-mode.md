@@ -12,7 +12,7 @@ OpenHandsは対話型CLIモードで実行でき、コマンドラインを通�
 2. 以下のコマンドを実行します：
 
 ```bash
-poetry run python -m openhands.core.cli
+uv run python -m openhands.core.cli
 ```
 
 このコマンドは対話型セッションを開始し、タスクを入力してOpenHandsからの応答を受け取ることができます。

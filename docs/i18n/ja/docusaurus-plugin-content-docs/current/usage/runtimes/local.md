@@ -60,7 +60,7 @@ export SANDBOX_VOLUMES=/path/to/your/project:/workspace:rw
 # export SANDBOX_VOLUMES=/path/to/your/project:/workspace:rw,/path/to/reference/data:/data:ro
 
 # OpenHandsを起動
-poetry run python -m openhands.core.main -t "write a bash script that prints hi"
+uv run python -m openhands.core.main -t "write a bash script that prints hi"
 ```
 
 ## ユースケース

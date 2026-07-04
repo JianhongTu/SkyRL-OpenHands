@@ -6,7 +6,7 @@ ids = ['pydata__xarray-3114-16452', 'pydata__xarray-3151-16453', 'pydata__xarray
 
 
 Command eval (our approach):
-poetry run ./evaluation/benchmarks/testgeneval/scripts/eval_infer_remote.sh evaluation/evaluation_outputs/outputs/kjain14__testgeneval-test/CodeActAgent/gpt-4o_maxiter_25_N_v0.20.0-no-hint-run_1/output.jsonl 10 kjain14/testgeneval test true
+uv run ./evaluation/benchmarks/testgeneval/scripts/eval_infer_remote.sh evaluation/evaluation_outputs/outputs/kjain14__testgeneval-test/CodeActAgent/gpt-4o_maxiter_25_N_v0.20.0-no-hint-run_1/output.jsonl 10 kjain14/testgeneval test true
 
 Command run (our approach):
 ./evaluation/benchmarks/testgeneval/scripts/run_infer.sh llm.eval_gpt HEAD CodeActAgent -1 25 10 kjain14/testgeneval test 1 ../TestGenEval/results/testgeneval/preds/gpt-4o-2024-08-06__testgeneval__0.2__test.jsonl

@@ -88,7 +88,7 @@ Ce hash est construit à partir des 16 premiers chiffres du MD5 de :
 
 - Le nom de l'image de base sur laquelle l'image a été construite (ex. : `nikolaik/python-nodejs:python3.12-nodejs22`)
 - Le contenu du `pyproject.toml` inclus dans l'image.
-- Le contenu du `poetry.lock` inclus dans l'image.
+- Le contenu du `uv.lock` inclus dans l'image.
 
 Cela donne effectivement un hash pour les dépendances d'Openhands indépendamment du code source.
 
@@ -101,7 +101,7 @@ Ce tag est une concaténation de la version openhands et du nom de l'image de ba
 Lors de la génération d'une image...
 
 - **Pas de reconstruction** : OpenHands vérifie d'abord si une image avec le même **tag source le plus spécifique** existe. S'il existe une telle image, aucune construction n'est effectuée - l'image existante est utilisée.
-- **Reconstruction la plus rapide** : OpenHands vérifie ensuite si une image avec le **tag de verrouillage générique** existe. S'il existe une telle image, OpenHands construit une nouvelle image basée sur celle-ci, contournant toutes les étapes d'installation (comme `poetry install` et `apt-get`) sauf une opération finale pour copier le code source actuel. La nouvelle image est marquée uniquement avec un tag **source**.
+- **Reconstruction la plus rapide** : OpenHands vérifie ensuite si une image avec le **tag de verrouillage générique** existe. S'il existe une telle image, OpenHands construit une nouvelle image basée sur celle-ci, contournant toutes les étapes d'installation (comme `uv sync` et `apt-get`) sauf une opération finale pour copier le code source actuel. La nouvelle image est marquée uniquement avec un tag **source**.
 - **Reconstruction acceptable** : Si ni un tag **source** ni un tag **verrouillage** n'existe, une image sera construite basée sur l'image avec le tag **versionné**. Dans l'image avec tag versionné, la plupart des dépendances devraient déjà être installées, ce qui permet de gagner du temps.
 - **Reconstruction la plus lente** : Si aucun des trois tags n'existe, une toute nouvelle image est construite basée sur l'image de base (ce qui est une opération plus lente). Cette nouvelle image est marquée avec tous les tags **source**, **verrouillage** et **versionné**.
 

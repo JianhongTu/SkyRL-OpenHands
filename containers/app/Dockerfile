@@ -15,18 +15,16 @@ FROM python:3.12.3-slim AS backend-builder
 WORKDIR /app
 ENV PYTHONPATH='/app'
 
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+ENV UV_PROJECT_ENVIRONMENT=/app/.venv \
+    UV_CACHE_DIR=/tmp/uv_cache
 
 RUN apt-get update -y \
     && apt-get install -y curl make git build-essential \
-    && python3 -m pip install poetry==1.8.2  --break-system-packages
+    && python3 -m pip install uv --break-system-packages
 
-COPY ./pyproject.toml ./poetry.lock ./
+COPY ./pyproject.toml ./uv.lock ./
 RUN touch README.md
-RUN export POETRY_CACHE_DIR && poetry install --without evaluation --no-root && rm -rf $POETRY_CACHE_DIR
+RUN uv sync --frozen --no-dev --no-install-project && rm -rf $UV_CACHE_DIR
 
 FROM python:3.12.3-slim AS openhands-app
 
@@ -76,7 +74,7 @@ COPY --chown=openhands:app --chmod=770 ./openhands ./openhands
 COPY --chown=openhands:app --chmod=777 ./openhands/runtime/plugins ./openhands/runtime/plugins
 COPY --chown=openhands:app --chmod=770 ./openhands/agenthub ./openhands/agenthub
 COPY --chown=openhands:app ./pyproject.toml ./pyproject.toml
-COPY --chown=openhands:app ./poetry.lock ./poetry.lock
+COPY --chown=openhands:app ./uv.lock ./uv.lock
 COPY --chown=openhands:app ./README.md ./README.md
 COPY --chown=openhands:app ./MANIFEST.in ./MANIFEST.in
 COPY --chown=openhands:app ./LICENSE ./LICENSE

@@ -11,7 +11,7 @@ PythonでヘッドレスモードでOpenHandsを実行するには：
 1. [開発セットアップ手順](https://github.com/All-Hands-AI/OpenHands/blob/main/Development.md)に従っていることを確認してください。
 2. 次のコマンドを実行します：
 ```bash
-poetry run python -m openhands.core.main -t "write a bash script that prints hi"
+uv run python -m openhands.core.main -t "write a bash script that prints hi"
 ```
 
 環境変数または[`config.toml`ファイル](https://github.com/All-Hands-AI/OpenHands/blob/main/config.template.toml)を通じて、モデル、APIキー、その他の設定を必ず設定してください。
