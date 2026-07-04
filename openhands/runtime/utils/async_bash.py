@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-from openhands.runtime.base import CommandResult
+from openhands.runtime.utils.git_handler import CommandResult
 
 
 class AsyncBashSession:

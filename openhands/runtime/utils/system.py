@@ -2,8 +2,6 @@ import random
 import socket
 import time
 
-import numpy as np
-
 
 def check_port_available(port: int) -> bool:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -30,7 +28,7 @@ def find_available_tcp_port(
     Returns:
         int: An available port number, or -1 if none found after max_attempts
     """
-    ports = np.random.randint(min_port, max_port + 1, size=max_attempts).tolist()
+    ports = [random.randint(min_port, max_port) for _ in range(max_attempts)]
 
     for port in ports:
         if check_port_available(port):

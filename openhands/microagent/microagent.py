@@ -177,6 +177,11 @@ def load_microagents_from_dir(
             # skip README.md
             if file.name == 'README.md':
                 continue
+            with open(file) as f:
+                metadata = frontmatter.load(f).metadata or {}
+            if metadata.get('type') == 'task':
+                logger.debug(f'Skipping task microagent template {file}')
+                continue
             try:
                 agent = BaseMicroagent.load(file, microagent_dir)
                 if isinstance(agent, RepoMicroagent):

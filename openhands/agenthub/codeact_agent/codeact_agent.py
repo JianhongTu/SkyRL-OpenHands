@@ -70,6 +70,20 @@ class CodeActAgent(Agent):
         JupyterRequirement(),
     ]
 
+    @classmethod
+    def get_sandbox_plugins(
+        cls, config: AgentConfig | None = None
+    ) -> list[PluginRequirement]:
+        if config is not None and not config.enable_jupyter:
+            return []
+        return [
+            # NOTE: AgentSkillsRequirement need to go before JupyterRequirement, since
+            # AgentSkillsRequirement provides a lot of Python functions,
+            # and it needs to be initialized before Jupyter for Jupyter to use those functions.
+            AgentSkillsRequirement(),
+            JupyterRequirement(),
+        ]
+
     def __init__(
         self,
         llm: LLM,

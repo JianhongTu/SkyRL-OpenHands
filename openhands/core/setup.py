@@ -64,8 +64,10 @@ def create_runtime(
     # agent class
     if agent:
         agent_cls = type(agent)
+        agent_config = agent.config
     else:
         agent_cls = Agent.get_cls(config.default_agent)
+        agent_config = config.get_agent_config(config.default_agent)
 
     # runtime and tools
     runtime_cls = get_runtime_cls(config.runtime)
@@ -74,7 +76,7 @@ def create_runtime(
         config=config,
         event_stream=event_stream,
         sid=session_id,
-        plugins=agent_cls.sandbox_plugins,
+        plugins=agent_cls.get_sandbox_plugins(agent_config),
         headless_mode=headless_mode,
     )
 

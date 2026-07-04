@@ -33,6 +33,12 @@ class Agent(ABC):
     _registry: dict[str, type['Agent']] = {}
     sandbox_plugins: list[PluginRequirement] = []
 
+    @classmethod
+    def get_sandbox_plugins(
+        cls, config: 'AgentConfig | None' = None
+    ) -> list[PluginRequirement]:
+        return cls.sandbox_plugins
+
     def __init__(
         self,
         llm: LLM,

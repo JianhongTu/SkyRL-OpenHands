@@ -4,7 +4,6 @@ import json
 import os
 import re
 import tempfile
-from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
@@ -43,6 +42,7 @@ from openhands.controller.state.state import State
 from openhands.core.config import (
     AgentConfig,
     AppConfig,
+    SandboxConfig,
     get_llm_config_arg,
     get_parser,
 )
@@ -78,6 +78,28 @@ def _is_r2e_metadata(metadata: EvalMetadata) -> bool:
     return metadata.details.get('mode') == 'r2e' or _is_r2e_dataset(
         metadata.dataset
     )
+
+
+def make_json_safe(value: Any) -> Any:
+    """Convert pandas/numpy values into JSON-serializable Python values."""
+    if isinstance(value, dict):
+        return {str(key): make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [make_json_safe(item) for item in value]
+    if hasattr(value, 'tolist') and not isinstance(value, (str, bytes)):
+        return make_json_safe(value.tolist())
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def instance_to_json_safe_dict(instance: pd.Series | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(instance, dict):
+        return make_json_safe(instance)
+    return make_json_safe(instance.to_dict())
 
 
 def _get_swebench_workspace_dir_name(
@@ -252,6 +274,34 @@ def get_instance_docker_image(instance, data_source) -> str:
     return (DEFAULT_DOCKER_IMAGE_PREFIX.rstrip('/') + '/' + image_name).lower()
 
 
+def apply_runtime_overrides(
+    sandbox_config: SandboxConfig, metadata: EvalMetadata
+) -> SandboxConfig:
+    details = metadata.details or {}
+    runtime_override_fields = {
+        'runtime_mode',
+        'runtime_bundle_host_path',
+        'runtime_bundle_container_path',
+        'runtime_bundle_readonly',
+        'runtime_executable',
+        'runtime_working_dir',
+        'enable_mcp',
+    }
+    updates = {
+        field: details[field]
+        for field in runtime_override_fields
+        if field in details and details[field] is not None
+    }
+    if not updates:
+        return sandbox_config
+    return SandboxConfig.model_validate(
+        {
+            **sandbox_config.model_dump(),
+            **updates,
+        }
+    )
+
+
 def get_config(
     instance: pd.Series,
     metadata: EvalMetadata,
@@ -275,6 +325,7 @@ def get_config(
         dataset_name=metadata.dataset,
         instance_id=instance['instance_id'],
     )
+    sandbox_config = apply_runtime_overrides(sandbox_config, metadata)
 
     config = AppConfig(
         default_agent=metadata.agent_class,
@@ -359,10 +410,7 @@ def initialize_runtime(
         temp_file_path = os.path.join(temp_dir, swe_instance_json_name)
         # Write to the file with the desired name within the temporary directory
         with open(temp_file_path, 'w') as f:
-            if not isinstance(instance, dict):
-                json.dump([instance.to_dict()], f)
-            else:
-                json.dump([instance], f)
+            json.dump([instance_to_json_safe_dict(instance)], f)
 
         # Copy the file to the desired location
         runtime.copy_to(temp_file_path, '/swe_util/eval_data/instances/')
@@ -844,7 +892,7 @@ def process_instance(
     output = EvalOutput(
         instance_id=instance.instance_id,
         instruction=instruction,
-        instance=instance.to_dict(),  # SWE Bench specific
+        instance=instance_to_json_safe_dict(instance),  # SWE Bench specific
         test_result=test_result,
         metadata=metadata,
         history=histories,
@@ -912,6 +960,53 @@ if __name__ == '__main__':
         choices=['swe', 'swt', 'swt-ci', 'r2e'],
         help="mode to run the evaluation, one of 'swe', 'swt', 'swt-ci', or 'r2e'",
     )
+    parser.add_argument(
+        '--runtime-mode',
+        type=str,
+        default=os.environ.get('SANDBOX_RUNTIME_MODE', 'image'),
+        choices=['image', 'mounted'],
+        help='How to provide the OpenHands runtime: build/use a runtime image or mount a prebuilt runtime bundle.',
+    )
+    parser.add_argument(
+        '--runtime-bundle-host-path',
+        type=str,
+        default=os.environ.get('SANDBOX_RUNTIME_BUNDLE_HOST_PATH'),
+        help='Host path to the prebuilt OpenHands runtime bundle for --runtime-mode mounted.',
+    )
+    parser.add_argument(
+        '--runtime-bundle-container-path',
+        type=str,
+        default=os.environ.get(
+            'SANDBOX_RUNTIME_BUNDLE_CONTAINER_PATH', '/opt/openhands-runtime'
+        ),
+        help='Container path where the runtime bundle is mounted.',
+    )
+    parser.add_argument(
+        '--runtime-executable',
+        type=str,
+        default=os.environ.get('SANDBOX_RUNTIME_EXECUTABLE'),
+        help='Python executable path inside the sandbox for mounted runtime mode.',
+    )
+    parser.add_argument(
+        '--runtime-working-dir',
+        type=str,
+        default=os.environ.get('SANDBOX_RUNTIME_WORKING_DIR'),
+        help='Container working directory used to start the mounted runtime process.',
+    )
+    parser.add_argument(
+        '--runtime-bundle-readwrite',
+        action='store_true',
+        default=os.environ.get('SANDBOX_RUNTIME_BUNDLE_READONLY', 'true').lower()
+        in ('0', 'false', 'no'),
+        help='Mount the runtime bundle read-write instead of read-only.',
+    )
+    parser.add_argument(
+        '--disable-runtime-mcp',
+        action='store_true',
+        default=os.environ.get('SANDBOX_ENABLE_MCP', 'true').lower()
+        in ('0', 'false', 'no'),
+        help='Disable the action execution server MCP router.',
+    )
     args, _ = parser.parse_known_args()
 
     # NOTE: It is preferable to load datasets from huggingface datasets and perform post-processing
@@ -969,7 +1064,16 @@ if __name__ == '__main__':
     if llm_config is None:
         raise ValueError(f'Could not find LLM config: --llm_config {args.llm_config}')
 
-    details = {'mode': args.mode}
+    details = {
+        'mode': args.mode,
+        'runtime_mode': args.runtime_mode,
+        'runtime_bundle_host_path': args.runtime_bundle_host_path,
+        'runtime_bundle_container_path': args.runtime_bundle_container_path,
+        'runtime_bundle_readonly': not args.runtime_bundle_readwrite,
+        'runtime_executable': args.runtime_executable,
+        'runtime_working_dir': args.runtime_working_dir,
+        'enable_mcp': not args.disable_runtime_mcp,
+    }
     _agent_cls = openhands.agenthub.Agent.get_cls(args.agent_cls)
 
     dataset_descrption = (

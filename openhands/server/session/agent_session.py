@@ -283,13 +283,14 @@ class AgentSession:
 
         self.logger.debug(f'Initializing runtime `{runtime_name}` now...')
         runtime_cls = get_runtime_cls(runtime_name)
+        sandbox_plugins = agent.get_sandbox_plugins(agent.config)
 
         if runtime_cls == RemoteRuntime:
             self.runtime = runtime_cls(
                 config=config,
                 event_stream=self.event_stream,
                 sid=self.sid,
-                plugins=agent.sandbox_plugins,
+                plugins=sandbox_plugins,
                 status_callback=self._status_callback,
                 headless_mode=False,
                 attach_to_existing=False,
@@ -307,7 +308,7 @@ class AgentSession:
                 config=config,
                 event_stream=self.event_stream,
                 sid=self.sid,
-                plugins=agent.sandbox_plugins,
+                plugins=sandbox_plugins,
                 status_callback=self._status_callback,
                 headless_mode=False,
                 attach_to_existing=False,
@@ -374,10 +375,11 @@ class AgentSession:
             f'Base URL: {agent.llm.config.base_url}\n'
         )
 
+        sandbox_plugins = agent.get_sandbox_plugins(agent.config)
         msg += (
             f'Agent: {agent.name}\n'
             f'Runtime: {self.runtime.__class__.__name__}\n'
-            f'Plugins: {agent.sandbox_plugins}\n'
+            f'Plugins: {sandbox_plugins}\n'
             '-------------------------------------------------------------------------------------------'
         )
         self.logger.debug(msg)
