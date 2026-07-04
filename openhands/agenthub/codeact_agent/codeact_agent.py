@@ -75,7 +75,9 @@ class CodeActAgent(Agent):
         cls, config: AgentConfig | None = None
     ) -> list[PluginRequirement]:
         if config is not None and not config.enable_jupyter:
-            return []
+            # Jupyter is optional, but AgentSkills provides file read/edit and
+            # other Python helpers that the agent needs regardless.
+            return [AgentSkillsRequirement()]
         return [
             # NOTE: AgentSkillsRequirement need to go before JupyterRequirement, since
             # AgentSkillsRequirement provides a lot of Python functions,
