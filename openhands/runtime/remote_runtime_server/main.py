@@ -26,7 +26,7 @@ from fastapi import (
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import settings
+from .config import resolve_public_host, settings
 from .managers.runtime import RuntimeManager
 from .models import (
     RuntimeRequest,
@@ -390,9 +390,7 @@ if __name__ == '__main__':
     from uvicorn.config import LOGGING_CONFIG
 
     args = parse_args()
-    settings.PUBLIC_HOST = args.host
-    if settings.PUBLIC_HOST == '0.0.0.0':
-        settings.PUBLIC_HOST = 'localhost'
+    settings.PUBLIC_HOST = resolve_public_host(args.host)
     settings.PORT = args.port
     LOGGING_CONFIG["formatters"]["default"]["fmt"] = "%(asctime)s [%(name)s] %(levelprefix)s %(message)s"
     LOGGING_CONFIG["formatters"]["access"]["fmt"] = "%(asctime)s [%(name)s] %(levelprefix)s %(client_addr)s - \"%(request_line)s\" %(status_code)s"

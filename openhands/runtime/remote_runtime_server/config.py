@@ -1,7 +1,9 @@
-from pydantic_settings import BaseSettings
 import os
 import socket
 from copy import deepcopy
+import json
+
+from pydantic_settings import BaseSettings
 
 
 def get_memory_in_bytes(memory_str: str) -> int:
@@ -10,6 +12,14 @@ def get_memory_in_bytes(memory_str: str) -> int:
     if memory_str[-1] in units:
         return int(int(float(memory_str[:-1])) * units[memory_str[-1]])
     return int(memory_str)
+
+
+def resolve_public_host(bind_host: str) -> str:
+    public_host = os.environ.get('PUBLIC_HOST') or bind_host
+    if public_host == '0.0.0.0':
+        return 'localhost'
+    return public_host
+
 
 class Settings(BaseSettings):
     API_KEY: str = os.environ.get("OPENHANDS_API_KEY", 'sandbox-remote')
@@ -34,6 +44,29 @@ class Settings(BaseSettings):
     APP_PORT_RANGE_2: tuple = (55000, 59999)
 
     MAX_CONNECTIONS: int = 300
+    REMOTE_RUNTIME_ALLOWED_MOUNT_PREFIXES: str | list[str] = ''
+    REMOTE_RUNTIME_ALLOW_RW_MOUNTS: bool = False
+
+    def get_remote_runtime_allowed_mount_prefixes(self) -> list[str]:
+        allowed_prefixes = self.REMOTE_RUNTIME_ALLOWED_MOUNT_PREFIXES
+        if isinstance(allowed_prefixes, list):
+            return [prefix for prefix in allowed_prefixes if prefix]
+        if not allowed_prefixes:
+            return []
+
+        raw_value = allowed_prefixes.strip()
+        if not raw_value:
+            return []
+        if raw_value.startswith('['):
+            parsed_value = json.loads(raw_value)
+            if not isinstance(parsed_value, list):
+                raise ValueError(
+                    'REMOTE_RUNTIME_ALLOWED_MOUNT_PREFIXES JSON value must be a list'
+                )
+            return [str(prefix) for prefix in parsed_value if prefix]
+
+        separator = ',' if ',' in raw_value else os.pathsep
+        return [prefix.strip() for prefix in raw_value.split(separator) if prefix.strip()]
 
     def get_docker_runtime_kwargs(self, resource_factor: int) -> dict:
         docker_runtime_kwargs = deepcopy(self.REMOTE_RUNTIME_DOCKER_RUNTIME_KWARGS)

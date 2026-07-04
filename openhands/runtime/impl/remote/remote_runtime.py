@@ -128,7 +128,24 @@ class RemoteRuntime(ActionExecutionClient):
             )
         else:
             self.send_status_message('STATUS$STARTING_CONTAINER')
-            if self.config.sandbox.runtime_container_image is None:
+            if self.config.sandbox.runtime_mode == 'mounted':
+                self.container_image = (
+                    self.config.sandbox.runtime_container_image
+                    or self.config.sandbox.base_container_image
+                )
+                if self.container_image is None:
+                    raise ValueError(
+                        'Either runtime_container_image or base_container_image is required for mounted runtime mode.'
+                    )
+                self.log(
+                    'info',
+                    f'Starting remote runtime with mounted OpenHands bundle and image: {self.container_image}',
+                )
+                if not self.runtime_builder.image_exists(self.container_image):
+                    raise AgentRuntimeError(
+                        f'Container image {self.container_image} does not exist'
+                    )
+            elif self.config.sandbox.runtime_container_image is None:
                 self.log(
                     'info',
                     f'Building remote runtime with base image: {self.config.sandbox.base_container_image}',
@@ -241,22 +258,54 @@ class RemoteRuntime(ActionExecutionClient):
 
     def _start_runtime(self) -> None:
         # Prepare the request body for the /start endpoint
+        python_prefix = None
+        python_executable = 'python'
+        working_dir = '/openhands/code/'
+        runtime_mounts: list[dict[str, str]] = []
+        if self.config.sandbox.runtime_mode == 'mounted':
+            assert self.config.sandbox.runtime_executable is not None
+            assert self.config.sandbox.runtime_working_dir is not None
+            assert self.config.sandbox.runtime_bundle_host_path is not None
+            python_prefix = []
+            python_executable = self.config.sandbox.runtime_executable
+            working_dir = self.config.sandbox.runtime_working_dir
+            runtime_mounts = [
+                {
+                    'host_path': self.config.sandbox.runtime_bundle_host_path,
+                    'container_path': self.config.sandbox.runtime_bundle_container_path,
+                    'mode': (
+                        'ro' if self.config.sandbox.runtime_bundle_readonly else 'rw'
+                    ),
+                }
+            ]
+
         command = get_action_execution_server_startup_command(
             server_port=self.port,
             plugins=self.plugins,
             app_config=self.config,
+            python_prefix=python_prefix,
+            python_executable=python_executable,
         )
         environment: dict[str, str] = {}
         if self.config.debug or os.environ.get('DEBUG', 'false').lower() == 'true':
             environment['DEBUG'] = 'true'
         environment.update(self.config.sandbox.runtime_startup_env_vars)
+        if self.config.sandbox.runtime_mode == 'mounted':
+            environment.update(
+                {
+                    'OPENHANDS_RUNTIME_MODE': 'mounted',
+                    'OPENHANDS_RUNTIME_PYTHON': python_executable,
+                    'OPENHANDS_RUNTIME_WORKING_DIR': working_dir,
+                }
+            )
         start_request: dict[str, Any] = {
             'image': self.container_image,
             'command': command,
-            'working_dir': '/openhands/code/',
+            'working_dir': working_dir,
             'environment': environment,
             'session_id': self.sid,
             'resource_factor': self.config.sandbox.remote_runtime_resource_factor,
+            'runtime_mounts': runtime_mounts,
         }
         if self.config.sandbox.remote_runtime_class == 'sysbox':
             start_request['runtime_class'] = 'sysbox-runc'

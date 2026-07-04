@@ -1,6 +1,19 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+
+class RuntimeMount(BaseModel):
+    host_path: str
+    container_path: str
+    mode: Literal['ro', 'rw'] = 'ro'
+
+    @field_validator('host_path', 'container_path')
+    @classmethod
+    def validate_absolute_path(cls, path: str) -> str:
+        if not path.startswith('/'):
+            raise ValueError('mount paths must be absolute')
+        return path
 
 
 class StartRequest(BaseModel):
@@ -15,6 +28,7 @@ class StartRequest(BaseModel):
     workspace_mount_path: Optional[str] = None
     workspace_mount_path_in_sandbox: Optional[str] = None
     use_host_network: bool = False
+    runtime_mounts: List[RuntimeMount] = Field(default_factory=list)
 
 
 class StopRequest(BaseModel):

@@ -1,5 +1,6 @@
 
 import uuid
+import os
 from typing import Dict, Optional, List
 import time
 
@@ -18,7 +19,7 @@ from openhands.runtime.utils import find_available_tcp_port
 from openhands.utils.async_utils import call_sync_from_async
 
 from ..config import settings
-from ..models import StartRequest
+from ..models import RuntimeMount, StartRequest
 from ..utils  import get_logger
 from .builder import BuildManager
 
@@ -100,6 +101,52 @@ class RuntimeManager:
         logger.info(f"Port finding took {e-s} seconds for session {session_id}")
         return container_port, vscode_port, app_ports
 
+    def _is_allowed_runtime_mount_path(self, host_path: str) -> bool:
+        allowed_prefixes = settings.get_remote_runtime_allowed_mount_prefixes()
+        if not allowed_prefixes:
+            return False
+
+        real_host_path = os.path.realpath(host_path)
+        for prefix in allowed_prefixes:
+            real_prefix = os.path.realpath(prefix)
+            if real_host_path == real_prefix or real_host_path.startswith(
+                real_prefix + os.sep
+            ):
+                return True
+        return False
+
+    def _get_runtime_mount_binds(self, runtime_mounts: List[RuntimeMount]) -> List[str]:
+        if not runtime_mounts:
+            return []
+
+        if not settings.get_remote_runtime_allowed_mount_prefixes():
+            raise HTTPException(
+                status_code=400,
+                detail='Runtime mounts are disabled on this remote runtime server.',
+            )
+
+        binds = []
+        for mount in runtime_mounts:
+            host_path = os.path.realpath(mount.host_path)
+            mode = mount.mode
+            if mode != 'ro' and not settings.REMOTE_RUNTIME_ALLOW_RW_MOUNTS:
+                raise HTTPException(
+                    status_code=403,
+                    detail='Read-write runtime mounts are disabled on this remote runtime server.',
+                )
+            if not os.path.exists(host_path):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'Runtime mount host path does not exist: {mount.host_path}',
+                )
+            if not self._is_allowed_runtime_mount_path(host_path):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f'Runtime mount host path is not allowed: {mount.host_path}',
+                )
+            binds.append(f'{host_path}:{mount.container_path}:{mode}')
+        return binds
+
 
     async def start_runtime(self, docker_client: aiodocker.Docker, request: StartRequest) -> Dict:
         runtime_id = str(uuid.uuid4())
@@ -147,13 +194,21 @@ class RuntimeManager:
             host_config = {k: v for k, v in host_config.items() if v is not None}
 
             volumes = None
+            binds = self._get_runtime_mount_binds(request.runtime_mounts)
+            for mount in request.runtime_mounts:
+                if volumes is None:
+                    volumes = {}
+                volumes[mount.container_path] = {}
+
             if request.workspace_mount_path and request.workspace_mount_path_in_sandbox:
                 # API format
-                volumes = {
-                    request.workspace_mount_path_in_sandbox: {}
-                }
+                if volumes is None:
+                    volumes = {}
+                volumes[request.workspace_mount_path_in_sandbox] = {}
                 # For Binds in HostConfig
-                binds = [f"{request.workspace_mount_path}:{request.workspace_mount_path_in_sandbox}:rw"]
+                binds.append(f"{request.workspace_mount_path}:{request.workspace_mount_path_in_sandbox}:rw")
+
+            if binds:
                 host_config["Binds"] = binds
 
             environment = {
@@ -224,6 +279,11 @@ class RuntimeManager:
                 'session_api_key': str(uuid.uuid4()),
             }
 
+        except HTTPException as e:
+            logger.error(f'Failed to start runtime: {str(e)}')
+            if runtime_id in self.active_runtimes:
+                await self.stop_runtime(docker_client, runtime_id, remove=True)
+            raise
         except Exception as e:
             logger.error(f'Failed to start runtime: {str(e)}')
             # for port in ([container_port, vscode_port] + app_ports):
