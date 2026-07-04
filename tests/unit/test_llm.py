@@ -199,6 +199,42 @@ def test_llm_top_k_not_in_completion_when_none(mock_litellm_completion):
     llm.completion(messages=[{'role': 'system', 'content': 'Test message'}])
 
 
+@patch('openhands.llm.llm.litellm_completion')
+def test_llm_omits_inference_params_when_requested(mock_litellm_completion):
+    config = LLMConfig(
+        model='openai/test-model',
+        api_key='test_key',
+        base_url='https://example.test/v1',
+        max_output_tokens=1500,
+        temperature=0.8,
+        top_p=0.9,
+        top_k=50,
+        reasoning_effort='high',
+        seed=42,
+        omit_inference_params=True,
+    )
+    llm = LLM(config)
+
+    def side_effect(*args, **kwargs):
+        assert kwargs['model'] == 'openai/test-model'
+        assert kwargs['base_url'] == 'https://example.test/v1'
+        for param in (
+            'temperature',
+            'top_p',
+            'top_k',
+            'max_completion_tokens',
+            'max_tokens',
+            'reasoning_effort',
+            'seed',
+        ):
+            assert param not in kwargs
+        return {'choices': [{'message': {'content': 'Mocked response'}}]}
+
+    mock_litellm_completion.side_effect = side_effect
+
+    llm.completion(messages=[{'role': 'system', 'content': 'Test message'}])
+
+
 def test_llm_init_with_metrics():
     config = LLMConfig(model='gpt-4o', api_key='test_key')
     metrics = Metrics()

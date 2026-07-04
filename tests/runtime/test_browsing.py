@@ -16,8 +16,8 @@ from openhands.events.observation import (
 )
 
 # ============================================================================================================================
-# Browsing tests, without evaluation (poetry install --without evaluation)
-# For eval environments, tests need to run with poetry install
+# Browsing tests, without evaluation dependencies.
+# For eval environments, tests need the uv evaluation dependency group installed.
 # ============================================================================================================================
 
 

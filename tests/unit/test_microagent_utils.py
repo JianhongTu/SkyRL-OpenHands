@@ -104,6 +104,25 @@ def test_load_microagents(temp_microagents_dir):
     assert agent_r.type == MicroagentType.REPO_KNOWLEDGE  # Check inferred type
 
 
+def test_load_microagents_skips_task_templates(temp_microagents_dir):
+    """Test that task template files are not loaded as global microagents."""
+    task_agent = """---
+name: task_template
+type: task
+version: 1.0.0
+agent: CodeActAgent
+---
+
+# Task Template
+"""
+    (temp_microagents_dir / 'task.md').write_text(task_agent)
+
+    repo_agents, knowledge_agents = load_microagents_from_dir(temp_microagents_dir)
+
+    assert 'task' not in repo_agents
+    assert 'task' not in knowledge_agents
+
+
 def test_load_microagents_with_nested_dirs(temp_microagents_dir):
     """Test loading microagents from nested directories."""
     # Create nested knowledge agent

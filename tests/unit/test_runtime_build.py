@@ -62,11 +62,11 @@ def _check_source_code_in_dir(temp_dir):
     assert os.path.exists(os.path.join(code_dir, 'pyproject.toml'))
 
     # The source code should only include the `openhands` folder,
-    # and pyproject.toml & poetry.lock that are needed to build the runtime image
+    # and dependency metadata files that are needed to build the runtime image
     assert set(os.listdir(code_dir)) == {
         'openhands',
         'pyproject.toml',
-        'poetry.lock',
+        'uv.lock',
     }
     assert os.path.exists(os.path.join(code_dir, 'openhands'))
     assert os.path.isdir(os.path.join(code_dir, 'openhands'))
@@ -75,7 +75,7 @@ def _check_source_code_in_dir(temp_dir):
     with open(os.path.join(code_dir, 'pyproject.toml'), 'r') as f:
         pyproject = toml.load(f)
 
-    _pyproject_version = pyproject['tool']['poetry']['version']
+    _pyproject_version = pyproject['project']['version']
     assert _pyproject_version == version('openhands-ai')
 
 
@@ -139,14 +139,22 @@ def test_generate_dockerfile_build_from_scratch():
     assert base_image in dockerfile_content
     assert 'apt-get update' in dockerfile_content
     assert 'wget curl' in dockerfile_content
-    assert 'poetry' in dockerfile_content and '-c conda-forge' in dockerfile_content
+    assert 'uv sync --frozen' in dockerfile_content and '-c conda-forge' in dockerfile_content
     assert 'python=3.12' in dockerfile_content
 
     # Check the update command
     assert 'COPY ./code/openhands /openhands/code/openhands' in dockerfile_content
     assert (
-        '/openhands/micromamba/bin/micromamba run -n openhands poetry install'
+        'uv sync --frozen --no-default-groups --group runtime --no-install-project'
         in dockerfile_content
+    )
+    assert (
+        dockerfile_content.index(
+            'uv sync --frozen --no-default-groups --group runtime --no-install-project'
+        )
+        < dockerfile_content.index(
+            'micromamba install -n openhands -c conda-forge poetry -y'
+        )
     )
 
 
@@ -163,7 +171,7 @@ def test_generate_dockerfile_build_from_lock():
     assert '-c conda-forge' not in dockerfile_content
     assert 'python=3.12' not in dockerfile_content
     assert 'https://micro.mamba.pm/install.sh' not in dockerfile_content
-    assert 'poetry install' not in dockerfile_content
+    assert 'uv sync --frozen' not in dockerfile_content
 
     # These update commands SHOULD still in the dockerfile
     assert 'COPY ./code/openhands /openhands/code/openhands' in dockerfile_content
@@ -179,12 +187,17 @@ def test_generate_dockerfile_build_from_versioned():
 
     # these commands should not exist when build from versioned
     assert 'wget curl sudo apt-utils git' not in dockerfile_content
-    assert '-c conda-forge' not in dockerfile_content
     assert 'python=3.12' not in dockerfile_content
     assert 'https://micro.mamba.pm/install.sh' not in dockerfile_content
 
     # this SHOULD exist when build from versioned
-    assert 'poetry install' in dockerfile_content
+    assert 'uv sync --frozen' in dockerfile_content
+    assert (
+        dockerfile_content.index('uv sync --frozen')
+        < dockerfile_content.index(
+            'micromamba install -n openhands -c conda-forge poetry -y'
+        )
+    )
     assert 'COPY ./code/openhands /openhands/code/openhands' in dockerfile_content
 
 
