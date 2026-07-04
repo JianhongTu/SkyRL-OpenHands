@@ -4,11 +4,8 @@ This is similar to the functionality of `CodeActResponseParser`.
 """
 
 import json
-import re
-from types import SimpleNamespace
 
 from litellm import (
-    ChatCompletionMessageToolCall,
     ModelResponse,
 )
 
@@ -47,96 +44,6 @@ from openhands.events.event import FileEditSource, FileReadSource
 from openhands.events.tool import ToolCallMetadata
 
 
-QWEN_TOOL_CALL_REGEX = re.compile(r'<tool_call>\s*(.*?)\s*</tool_call>', re.DOTALL)
-
-QWEN_TOOL_CALL_FORMAT_ERROR = """Your previous response could not be parsed as a tool call.
-
-Use exactly one tool call in this format:
-<tool_call>
-{"name": "execute_bash", "arguments": {"command": "ls"}}
-</tool_call>
-
-For finishing:
-<tool_call>
-{"name": "finish", "arguments": {"message": "Done", "task_completed": "true"}}
-</tool_call>"""
-
-
-def _normalize_finish_arguments(arguments: dict) -> dict:
-    normalized = dict(arguments)
-    if not set(normalized).issubset({'message', 'task_completed'}):
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-    if 'message' not in normalized:
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-    if not isinstance(normalized['message'], str):
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-    if 'task_completed' in normalized:
-        task_completed = normalized['task_completed']
-        if isinstance(task_completed, bool):
-            normalized['task_completed'] = str(task_completed).lower()
-        elif task_completed not in {'true', 'false', 'partial'}:
-            raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-    return normalized
-
-
-def _convert_qwen_tool_call_content(content: str):
-    stripped_content = content.strip()
-    matches = list(QWEN_TOOL_CALL_REGEX.finditer(stripped_content))
-    if not matches:
-        return None
-    if len(matches) != 1:
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-
-    match = matches[0]
-    if match.end() != len(stripped_content):
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-
-    try:
-        payload = json.loads(match.group(1).strip())
-    except json.JSONDecodeError as exc:
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR) from exc
-    if not isinstance(payload, dict) or set(payload) != {'name', 'arguments'}:
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-
-    fn_name = payload['name']
-    arguments = payload['arguments']
-    if not isinstance(fn_name, str) or not fn_name:
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-    if not isinstance(arguments, dict):
-        raise FunctionCallValidationError(QWEN_TOOL_CALL_FORMAT_ERROR)
-    if fn_name == FinishTool['function']['name']:
-        arguments = _normalize_finish_arguments(arguments)
-
-    return SimpleNamespace(
-        content=stripped_content[: match.start()].strip(),
-        tool_calls=[
-            ChatCompletionMessageToolCall(
-                id='toolu_01',
-                type='function',
-                function={
-                    'name': fn_name,
-                    'arguments': json.dumps(arguments, ensure_ascii=False),
-                },
-            )
-        ],
-    )
-
-
-def _maybe_convert_qwen_tool_call_response(response: ModelResponse) -> None:
-    assistant_msg = response.choices[0].message
-    if getattr(assistant_msg, 'tool_calls', None):
-        return
-    content = getattr(assistant_msg, 'content', None)
-    if not isinstance(content, str) or '<tool_call>' not in content:
-        return
-
-    converted = _convert_qwen_tool_call_content(content)
-    if converted is None:
-        return
-    assistant_msg.content = converted.content
-    assistant_msg.tool_calls = converted.tool_calls
-
-
 def combine_thought(action: Action, thought: str) -> Action:
     if not hasattr(action, 'thought'):
         return action
@@ -152,7 +59,6 @@ def response_to_actions(
 ) -> list[Action]:
     actions: list[Action] = []
     assert len(response.choices) == 1, 'Only one choice is supported for now'
-    _maybe_convert_qwen_tool_call_response(response)
     choice = response.choices[0]
     assistant_msg = choice.message
     if hasattr(assistant_msg, 'tool_calls') and assistant_msg.tool_calls:

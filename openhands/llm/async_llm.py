@@ -20,21 +20,30 @@ class AsyncLLM(LLM):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self._async_completion = partial(
-            self._call_acompletion,
-            model=self.config.model,
-            api_key=self.config.api_key.get_secret_value()
+        completion_kwargs: dict[str, Any] = {
+            'model': self.config.model,
+            'api_key': self.config.api_key.get_secret_value()
             if self.config.api_key
             else None,
-            base_url=self.config.base_url,
-            api_version=self.config.api_version,
-            custom_llm_provider=self.config.custom_llm_provider,
-            max_tokens=self.config.max_output_tokens,
-            timeout=self.config.timeout,
-            temperature=self.config.temperature,
-            top_p=self.config.top_p,
-            drop_params=self.config.drop_params,
-            seed=self.config.seed,
+            'base_url': self.config.base_url,
+            'api_version': self.config.api_version,
+            'custom_llm_provider': self.config.custom_llm_provider,
+            'timeout': self.config.timeout,
+            'drop_params': self.config.drop_params,
+        }
+        if not self.config.omit_inference_params:
+            completion_kwargs.update(
+                {
+                    'max_tokens': self.config.max_output_tokens,
+                    'temperature': self.config.temperature,
+                    'top_p': self.config.top_p,
+                    'seed': self.config.seed,
+                }
+            )
+
+        self._async_completion = partial(
+            self._call_acompletion,
+            **completion_kwargs,
         )
 
         async_completion_unwrapped = self._async_completion
@@ -63,7 +72,10 @@ class AsyncLLM(LLM):
                 messages = kwargs['messages']
 
             # Set reasoning effort for models that support it
-            if self.config.model.lower() in REASONING_EFFORT_SUPPORTED_MODELS:
+            if (
+                not self.config.omit_inference_params
+                and self.config.model.lower() in REASONING_EFFORT_SUPPORTED_MODELS
+            ):
                 kwargs['reasoning_effort'] = self.config.reasoning_effort
 
             # ensure we work with a list of messages

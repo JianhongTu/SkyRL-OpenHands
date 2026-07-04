@@ -45,6 +45,12 @@ from openhands.events.serialization.event import truncate_content
 from openhands.utils.prompt import PromptManager, RepositoryInfo, RuntimeInfo
 
 
+def _ensure_model_response(model_response: ModelResponse | dict) -> ModelResponse:
+    if isinstance(model_response, dict):
+        return ModelResponse(**model_response)
+    return model_response
+
+
 class ConversationMemory:
     """Processes event history into a coherent conversation for the agent."""
 
@@ -221,7 +227,7 @@ class ConversationMemory:
                 + str(action)
             )
 
-            llm_response: ModelResponse = tool_metadata.model_response
+            llm_response = _ensure_model_response(tool_metadata.model_response)
             assistant_msg = getattr(llm_response.choices[0], 'message')
 
             # Add the LLM message (assistant) that initiated the tool calls
@@ -247,9 +253,8 @@ class ConversationMemory:
             tool_metadata = action.tool_call_metadata
             if tool_metadata is not None:
                 # take the response message from the tool call
-                assistant_msg = getattr(
-                    tool_metadata.model_response.choices[0], 'message'
-                )
+                llm_response = _ensure_model_response(tool_metadata.model_response)
+                assistant_msg = getattr(llm_response.choices[0], 'message')
                 content = assistant_msg.content or ''
 
                 # save content if any, to thought

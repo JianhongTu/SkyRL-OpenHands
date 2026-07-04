@@ -45,6 +45,8 @@ class LLMConfig(BaseModel):
         native_tool_calling: Whether to use native tool calling if supported by the model. Can be True, False, or not set.
         reasoning_effort: The effort to put into reasoning. This is a string that can be one of 'low', 'medium', 'high', or 'none'. Exclusive for o1 models.
         seed: The seed to use for the LLM.
+        omit_inference_params: Do not pass sampling or token-limit parameters to
+            the LLM provider.
     """
 
     model: str = Field(default='claude-3-7-sonnet-20250219')
@@ -86,6 +88,7 @@ class LLMConfig(BaseModel):
     native_tool_calling: bool | None = Field(default=None)
     reasoning_effort: str | None = Field(default='high')
     seed: int | None = Field(default=None)
+    omit_inference_params: bool = Field(default=False)
 
     model_config = {'extra': 'forbid'}
 

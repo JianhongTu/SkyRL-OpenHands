@@ -155,27 +155,31 @@ class LLM(RetryMixin, DebugMixin):
             self.tokenizer = None
 
         # set up the completion function
-        kwargs: dict[str, Any] = {
-            'temperature': self.config.temperature,
-            'max_completion_tokens': self.config.max_output_tokens,
-        }
-        if self.config.top_k is not None:
-            # openai doesn't expose top_k
-            # litellm will handle it a bit differently than the openai-compatible params
-            kwargs['top_k'] = self.config.top_k
+        kwargs: dict[str, Any] = {}
+        if not self.config.omit_inference_params:
+            kwargs = {
+                'temperature': self.config.temperature,
+                'max_completion_tokens': self.config.max_output_tokens,
+                'top_p': self.config.top_p,
+                'seed': self.config.seed,
+            }
+            if self.config.top_k is not None:
+                # openai doesn't expose top_k
+                # litellm will handle it a bit differently than the openai-compatible params
+                kwargs['top_k'] = self.config.top_k
 
-        if (
-            self.config.model.lower() in REASONING_EFFORT_SUPPORTED_MODELS
-            or self.config.model.split('/')[-1] in REASONING_EFFORT_SUPPORTED_MODELS
-        ):
-            kwargs['reasoning_effort'] = self.config.reasoning_effort
-            kwargs.pop(
-                'temperature'
-            )  # temperature is not supported for reasoning models
-        # Azure issue: https://github.com/All-Hands-AI/OpenHands/issues/6777
-        if self.config.model.startswith('azure'):
-            kwargs['max_tokens'] = self.config.max_output_tokens
-            kwargs.pop('max_completion_tokens')
+            if (
+                self.config.model.lower() in REASONING_EFFORT_SUPPORTED_MODELS
+                or self.config.model.split('/')[-1] in REASONING_EFFORT_SUPPORTED_MODELS
+            ):
+                kwargs['reasoning_effort'] = self.config.reasoning_effort
+                kwargs.pop(
+                    'temperature'
+                )  # temperature is not supported for reasoning models
+            # Azure issue: https://github.com/All-Hands-AI/OpenHands/issues/6777
+            if self.config.model.startswith('azure'):
+                kwargs['max_tokens'] = self.config.max_output_tokens
+                kwargs.pop('max_completion_tokens')
 
         self._completion = partial(
             litellm_completion,
@@ -187,9 +191,7 @@ class LLM(RetryMixin, DebugMixin):
             api_version=self.config.api_version,
             custom_llm_provider=self.config.custom_llm_provider,
             timeout=self.config.timeout,
-            top_p=self.config.top_p,
             drop_params=self.config.drop_params,
-            seed=self.config.seed,
             **kwargs,
         )
 
