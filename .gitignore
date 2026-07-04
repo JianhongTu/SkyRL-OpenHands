@@ -2,5 +2,14 @@
 __pycache__/
 *.py[cod]
 
-# Local uv lockfile; this repo uses poetry.lock
-uv.lock
+# Local environments and ad hoc resolver output
+.venv/
+
+# Local secrets and machine-specific connection details
+.env
+
+# Local scratch data
+tmp/
+
+# Local eval run outputs (raw run data, not results to track)
+evaluation/evaluation_outputs/outputs/R2E-Gym__R2E-Gym-V1-train/
