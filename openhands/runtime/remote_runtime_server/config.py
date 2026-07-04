@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     DOCKER_REGISTRY_PREFIX: str = os.environ.get("OPENHANDS_DOCKER_REGISTRY_PREFIX", 'docker.io/xingyaoww/')
     BUILD_CACHE_DIR: str = os.environ.get("OPENHANDS_DOCKER_CACHE", '/tmp/.buildx-cache')
     BUILD_CACHE_MAX_AGE_DAYS: int = 7
+    RUNTIME_HEALTHCHECK_HOST: str = os.environ.get("OPENHANDS_RUNTIME_HEALTHCHECK_HOST", "127.0.0.1")
     CONTAINER_NAME_PREFIX: str = 'openhands-runtime-'
     PUBLIC_HOST: str = "0.0.0.0"
     PORT: str = "3000"

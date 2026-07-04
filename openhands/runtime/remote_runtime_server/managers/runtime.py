@@ -312,16 +312,16 @@ class RuntimeManager:
 
         runtime_info = self.active_runtimes[runtime_id]
         port = runtime_info['ports']['container_port']
-        host = settings.PUBLIC_HOST
+        host = settings.RUNTIME_HEALTHCHECK_HOST
         url = f'http://{host}:{port}/alive'
 
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=2) as response:
                     if response.status != 200:
-                        raise ConnectionError('Container not ready')
-        except:
-            raise ConnectionError('Container not responding')
+                        raise ConnectionError(f'Container not ready at {url}')
+        except Exception as e:
+            raise ConnectionError(f'Container not responding at {url}: {e}')
 
     async def stop_runtime(self, docker_client: aiodocker.Docker, runtime_id: str, remove: bool = True):
         """Stop and optionally remove a runtime container."""
@@ -548,7 +548,7 @@ class RuntimeManager:
         # Check main API endpoint
         try:
             async with aiohttp.ClientSession() as session:
-                url = f"http://{settings.PUBLIC_HOST}:{runtime_info['ports']['container_port']}/alive"
+                url = f"http://{settings.RUNTIME_HEALTHCHECK_HOST}:{runtime_info['ports']['container_port']}/alive"
                 async with session.get(url, timeout=2) as response:
                     health_info['api_responsive'] = response.status == 200
         except:
@@ -558,7 +558,7 @@ class RuntimeManager:
         if runtime_info['ports'].get('vscode_port'):
             try:
                 async with aiohttp.ClientSession() as session:
-                    url = f"http://{settings.PUBLIC_HOST}:{runtime_info['ports']['vscode_port']}"
+                    url = f"http://{settings.RUNTIME_HEALTHCHECK_HOST}:{runtime_info['ports']['vscode_port']}"
                     async with session.get(url, timeout=2) as response:
                         health_info['vscode_responsive'] = response.status == 200
             except:
@@ -568,7 +568,7 @@ class RuntimeManager:
         for port in runtime_info['ports'].get('app_ports', []):
             try:
                 async with aiohttp.ClientSession() as session:
-                    url = f'http://{settings.PUBLIC_HOST}:{port}'
+                    url = f'http://{settings.RUNTIME_HEALTHCHECK_HOST}:{port}'
                     async with session.get(url, timeout=2) as response:
                         health_info['app_ports_responsive'][port] = (
                             response.status == 200
