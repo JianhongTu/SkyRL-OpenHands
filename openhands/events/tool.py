@@ -1,5 +1,11 @@
-from litellm import ModelResponse
+from typing import TYPE_CHECKING, Any
+
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from litellm import ModelResponse
+else:
+    ModelResponse = Any
 
 
 class ToolCallMetadata(BaseModel):

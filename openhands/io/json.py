@@ -2,7 +2,13 @@ import json
 from datetime import datetime
 
 from json_repair import repair_json
-from litellm.types.utils import ModelResponse
+
+try:
+    from litellm.types.utils import ModelResponse as LiteLLMModelResponse
+except ImportError:
+    MODEL_RESPONSE_TYPES = ()
+else:
+    MODEL_RESPONSE_TYPES = (LiteLLMModelResponse,)
 
 from openhands.core.exceptions import LLMResponseError
 from openhands.events.event import Event
@@ -21,7 +27,7 @@ class OpenHandsJSONEncoder(json.JSONEncoder):
             return event_to_dict(obj)
         if isinstance(obj, Metrics):
             return obj.get()
-        if isinstance(obj, ModelResponse):
+        if MODEL_RESPONSE_TYPES and isinstance(obj, MODEL_RESPONSE_TYPES):
             return obj.model_dump()
         if isinstance(obj, CmdOutputMetadata):
             return obj.model_dump()

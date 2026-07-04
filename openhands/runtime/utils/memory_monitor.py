@@ -2,8 +2,6 @@
 
 import threading
 
-from memory_profiler import memory_usage
-
 from openhands.core.logger import openhands_logger as logger
 
 
@@ -29,6 +27,14 @@ class MemoryMonitor:
     def start_monitoring(self) -> None:
         """Start monitoring memory usage."""
         if not self.enable:
+            return
+
+        try:
+            from memory_profiler import memory_usage
+        except ImportError:
+            logger.warning(
+                'Memory monitoring requested, but memory_profiler is not installed.'
+            )
             return
 
         if self._monitoring_thread is not None:

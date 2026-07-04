@@ -1,8 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from browsergym.utils.obs import flatten_axtree_to_str
-
 from openhands.core.schema import ActionType, ObservationType
 from openhands.events.observation.observation import Observation
 
@@ -111,6 +109,8 @@ class BrowserOutputObservation(Observation):
             raise ValueError(f'Invalid trigger_by_action: {self.trigger_by_action}')
 
     def get_axtree_str(self, filter_visible_only: bool = False) -> str:
+        from browsergym.utils.obs import flatten_axtree_to_str
+
         cur_axtree_txt = flatten_axtree_to_str(
             self.axtree_object,
             extra_properties=self.extra_element_properties,

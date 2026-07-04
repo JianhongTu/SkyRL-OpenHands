@@ -5,6 +5,8 @@ It is responsible for executing actions received from OpenHands backend and prod
 NOTE: this will be executed inside the docker sandbox.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import base64
@@ -19,6 +21,7 @@ import time
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 from zipfile import ZipFile
 
 from binaryornot.check import is_binary
@@ -26,8 +29,6 @@ from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
-from mcpm import MCPRouter, RouterConfig
-from mcpm.router.router import logger as mcp_router_logger
 from openhands_aci.editor.editor import OHEditor
 from openhands_aci.editor.exceptions import ToolError
 from openhands_aci.editor.results import ToolResult
@@ -60,10 +61,8 @@ from openhands.events.observation import (
     Observation,
 )
 from openhands.events.serialization import event_from_dict, event_to_dict
-from openhands.runtime.browser import browse
-from openhands.runtime.browser.browser_env import BrowserEnv
 from openhands.runtime.file_viewer_server import start_file_viewer_server
-from openhands.runtime.plugins import ALL_PLUGINS, JupyterPlugin, Plugin, VSCodePlugin
+from openhands.runtime.plugins.requirement import Plugin
 from openhands.runtime.utils import find_available_tcp_port
 from openhands.runtime.utils.async_bash import AsyncBashSession
 from openhands.runtime.utils.bash import BashSession
@@ -73,12 +72,13 @@ from openhands.runtime.utils.runtime_init import init_user_and_working_directory
 from openhands.runtime.utils.system_stats import get_system_stats
 from openhands.utils.async_utils import call_sync_from_async, wait_all
 
-# Set MCP router logger to the same level as the main logger
-mcp_router_logger.setLevel(logger.getEffectiveLevel())
-
-
 if sys.platform == 'win32':
     from openhands.runtime.utils.windows_bash import WindowsPowershellSession
+
+if TYPE_CHECKING:
+    from openhands.runtime.browser.browser_env import BrowserEnv
+    from openhands.runtime.plugins.jupyter import JupyterPlugin
+    from openhands.runtime.plugins.vscode import VSCodePlugin
 
 
 class ActionRequest(BaseModel):
@@ -95,6 +95,22 @@ def verify_api_key(api_key: str = Depends(api_key_header)):
     if SESSION_API_KEY and api_key != SESSION_API_KEY:
         raise HTTPException(status_code=403, detail='Invalid API Key')
     return api_key
+
+
+def _get_plugin_class(plugin_name: str) -> type[Plugin] | None:
+    if plugin_name == 'agent_skills':
+        from openhands.runtime.plugins.agent_skills import AgentSkillsPlugin
+
+        return AgentSkillsPlugin
+    if plugin_name == 'jupyter':
+        from openhands.runtime.plugins.jupyter import JupyterPlugin
+
+        return JupyterPlugin
+    if plugin_name == 'vscode':
+        from openhands.runtime.plugins.vscode import VSCodePlugin
+
+        return VSCodePlugin
+    return None
 
 
 def _execute_file_editor(
@@ -225,6 +241,8 @@ class ActionExecutor:
 
         logger.debug('Initializing browser asynchronously')
         try:
+            from openhands.runtime.browser.browser_env import BrowserEnv
+
             self.browser = BrowserEnv(self.browsergym_eval_env)
             logger.debug('Browser initialized asynchronously')
         except Exception as e:
@@ -277,9 +295,11 @@ class ActionExecutor:
             self.bash_session.initialize()
         logger.debug('Bash session initialized')
 
-        # Start browser initialization in the background
-        self.browser_init_task = asyncio.create_task(self._init_browser_async())
-        logger.debug('Browser initialization started in background')
+        if self.browsergym_eval_env is not None:
+            # Browser evaluation benefits from startup overlap. General browsing can
+            # initialize lazily on the first browse action.
+            self.browser_init_task = asyncio.create_task(self._init_browser_async())
+            logger.debug('Browser initialization started in background')
 
         await wait_all(
             (self._init_plugin(plugin) for plugin in self.plugins_to_load),
@@ -315,7 +335,7 @@ class ActionExecutor:
         self.plugins[plugin.name] = plugin
         logger.debug(f'Initializing plugin: {plugin.name}')
 
-        if isinstance(plugin, JupyterPlugin):
+        if plugin.name == 'jupyter':
             # Escape backslashes in Windows path
             cwd = self.bash_session.cwd.replace('\\', '/')
             await self.run_ipython(
@@ -407,7 +427,7 @@ class ActionExecutor:
     async def run_ipython(self, action: IPythonRunCellAction) -> Observation:
         assert self.bash_session is not None
         if 'jupyter' in self.plugins:
-            _jupyter_plugin: JupyterPlugin = self.plugins['jupyter']  # type: ignore
+            _jupyter_plugin = cast('JupyterPlugin', self.plugins['jupyter'])
             # This is used to make AgentSkills in Jupyter aware of the
             # current working directory in Bash
             jupyter_cwd = getattr(self, '_jupyter_cwd', None)
@@ -597,19 +617,23 @@ class ActionExecutor:
         )
 
     async def browse(self, action: BrowseURLAction) -> Observation:
-        if self.browser is None:
-            return ErrorObservation(
-                'Browser functionality is not supported on Windows.'
-            )
-        await self._ensure_browser_ready()
+        try:
+            await self._ensure_browser_ready()
+        except BrowserUnavailableException as e:
+            return ErrorObservation(str(e))
+        from openhands.runtime.browser import browse
+
+        assert self.browser is not None
         return await browse(action, self.browser, self.initial_cwd)
 
     async def browse_interactive(self, action: BrowseInteractiveAction) -> Observation:
-        if self.browser is None:
-            return ErrorObservation(
-                'Browser functionality is not supported on Windows.'
-            )
-        await self._ensure_browser_ready()
+        try:
+            await self._ensure_browser_ready()
+        except BrowserUnavailableException as e:
+            return ErrorObservation(str(e))
+        from openhands.runtime.browser import browse
+
+        assert self.browser is not None
         return await browse(action, self.browser, self.initial_cwd)
 
     def close(self):
@@ -637,6 +661,11 @@ if __name__ == '__main__':
         help='BrowserGym environment used for browser evaluation',
         default=None,
     )
+    parser.add_argument(
+        '--disable-mcp',
+        action='store_true',
+        help='Disable the runtime MCP router',
+    )
 
     # example: python client.py 8000 --working-dir /workspace --plugins JupyterRequirement
     args = parser.parse_args()
@@ -652,12 +681,13 @@ if __name__ == '__main__':
     plugins_to_load: list[Plugin] = []
     if args.plugins:
         for plugin in args.plugins:
-            if plugin not in ALL_PLUGINS:
+            plugin_cls = _get_plugin_class(plugin)
+            if plugin_cls is None:
                 raise ValueError(f'Plugin {plugin} not found')
-            plugins_to_load.append(ALL_PLUGINS[plugin]())  # type: ignore
+            plugins_to_load.append(plugin_cls())
 
     client: ActionExecutor | None = None
-    mcp_router: MCPRouter | None = None
+    mcp_router = None
     MCP_ROUTER_PROFILE_PATH = os.path.join(
         os.path.dirname(__file__), 'mcp', 'config.json'
     )
@@ -676,44 +706,53 @@ if __name__ == '__main__':
         await client.ainit()
         logger.info('ActionExecutor initialized.')
 
-        # Initialize and mount MCP Router
-        logger.info('Initializing MCP Router...')
-        mcp_router = MCPRouter(
-            profile_path=MCP_ROUTER_PROFILE_PATH,
-            router_config=RouterConfig(
-                api_key=SESSION_API_KEY,
-                auth_enabled=bool(SESSION_API_KEY),
-            ),
-        )
-        allowed_origins = ['*']
-        sse_app = await mcp_router.get_sse_server_app(
-            allow_origins=allowed_origins, include_lifespan=False
-        )
+        if args.disable_mcp:
+            logger.info('MCP Router disabled.')
+        else:
+            from mcpm import MCPRouter, RouterConfig
+            from mcpm.router.router import logger as mcp_router_logger
 
-        # Check for route conflicts before mounting
-        main_app_routes = {route.path for route in app.routes}
-        sse_app_routes = {route.path for route in sse_app.routes}
-        conflicting_routes = main_app_routes.intersection(sse_app_routes)
+            # Set MCP router logger to the same level as the main logger
+            mcp_router_logger.setLevel(logger.getEffectiveLevel())
 
-        if conflicting_routes:
-            logger.error(f'Route conflicts detected: {conflicting_routes}')
-            raise RuntimeError(
-                f'Cannot mount SSE app - conflicting routes found: {conflicting_routes}'
+            # Initialize and mount MCP Router
+            logger.info('Initializing MCP Router...')
+            mcp_router = MCPRouter(
+                profile_path=MCP_ROUTER_PROFILE_PATH,
+                router_config=RouterConfig(
+                    api_key=SESSION_API_KEY,
+                    auth_enabled=bool(SESSION_API_KEY),
+                ),
+            )
+            allowed_origins = ['*']
+            sse_app = await mcp_router.get_sse_server_app(
+                allow_origins=allowed_origins, include_lifespan=False
             )
 
-        app.mount('/', sse_app)
-        logger.info(
-            f'Mounted MCP Router SSE app at root path with allowed origins: {allowed_origins}'
-        )
+            # Check for route conflicts before mounting
+            main_app_routes = {route.path for route in app.routes}
+            sse_app_routes = {route.path for route in sse_app.routes}
+            conflicting_routes = main_app_routes.intersection(sse_app_routes)
 
-        # Additional debug logging
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug('Main app routes:')
-            for route in main_app_routes:
-                logger.debug(f'  {route}')
-            logger.debug('MCP SSE server app routes:')
-            for route in sse_app_routes:
-                logger.debug(f'  {route}')
+            if conflicting_routes:
+                logger.error(f'Route conflicts detected: {conflicting_routes}')
+                raise RuntimeError(
+                    f'Cannot mount SSE app - conflicting routes found: {conflicting_routes}'
+                )
+
+            app.mount('/', sse_app)
+            logger.info(
+                f'Mounted MCP Router SSE app at root path with allowed origins: {allowed_origins}'
+            )
+
+            # Additional debug logging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('Main app routes:')
+                for route in main_app_routes:
+                    logger.debug(f'  {route}')
+                logger.debug('MCP SSE server app routes:')
+                for route in sse_app_routes:
+                    logger.debug(f'  {route}')
 
         yield
 
@@ -815,7 +854,8 @@ if __name__ == '__main__':
 
     @app.post('/update_mcp_server')
     async def update_mcp_server(request: Request):
-        assert mcp_router is not None
+        if mcp_router is None:
+            raise HTTPException(status_code=404, detail='MCP Router is disabled')
         assert os.path.exists(MCP_ROUTER_PROFILE_PATH)
 
         # Use synchronous file operations outside of async function
@@ -956,7 +996,7 @@ if __name__ == '__main__':
     async def get_vscode_connection_token():
         assert client is not None
         if 'vscode' in client.plugins:
-            plugin: VSCodePlugin = client.plugins['vscode']  # type: ignore
+            plugin = cast('VSCodePlugin', client.plugins['vscode'])
             return {'token': plugin.vscode_connection_token}
         else:
             return {'token': None}
@@ -1052,4 +1092,3 @@ if __name__ == '__main__':
         timeout_keep_alive=60,
         log_level='debug',
     )
-

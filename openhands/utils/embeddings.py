@@ -10,7 +10,7 @@ try:
     # check if those we need later are available using importlib
     if importlib.util.find_spec('chromadb') is None:
         raise ImportError(
-            'chromadb is not available. Please install it using poetry install --with llama-index'
+            'chromadb is not available. Please install the llama-index dependencies in your uv environment'
         )
 
     if (
@@ -22,7 +22,7 @@ try:
         is None
     ):
         raise ImportError(
-            'llama_index is not available. Please install it using poetry install --with llama-index'
+            'llama_index is not available. Please install the llama-index dependencies in your uv environment'
         )
 
     from llama_index.core import Document, VectorStoreIndex
@@ -58,7 +58,7 @@ def check_llama_index():
     if not LLAMA_INDEX_AVAILABLE:
         raise ImportError(
             'llama_index and its dependencies are not installed. '
-            'To use memory features, please run: poetry install --with llama-index.'
+            'To use memory features, install the llama-index dependencies in your uv environment.'
         )
 
 

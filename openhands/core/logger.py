@@ -8,9 +8,13 @@ from datetime import datetime
 from types import TracebackType
 from typing import Any, Literal, Mapping, MutableMapping, TextIO
 
-import litellm
 from pythonjsonlogger.json import JsonFormatter
 from termcolor import colored
+
+try:
+    import litellm
+except ImportError:
+    litellm = None
 
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 DEBUG = os.getenv('DEBUG', 'False').lower() in ['true', '1', 'yes']
@@ -21,23 +25,26 @@ LOG_JSON = os.getenv('LOG_JSON', 'False').lower() in ['true', '1', 'yes']
 LOG_JSON_LEVEL_KEY = os.getenv('LOG_JSON_LEVEL_KEY', 'level')
 
 
-# Configure litellm logging based on DEBUG_LLM
-if DEBUG_LLM:
-    confirmation = input(
-        '\n⚠️ WARNING: You are enabling DEBUG_LLM which may expose sensitive information like API keys.\n'
-        'This should NEVER be enabled in production.\n'
-        "Type 'y' to confirm you understand the risks: "
-    )
-    if confirmation.lower() == 'y':
-        litellm.suppress_debug_info = False
-        litellm.set_verbose = True
+# Configure litellm logging based on DEBUG_LLM when litellm is installed.
+if litellm is not None:
+    if DEBUG_LLM:
+        confirmation = input(
+            '\n⚠️ WARNING: You are enabling DEBUG_LLM which may expose sensitive information like API keys.\n'
+            'This should NEVER be enabled in production.\n'
+            "Type 'y' to confirm you understand the risks: "
+        )
+        if confirmation.lower() == 'y':
+            litellm.suppress_debug_info = False
+            litellm.set_verbose = True
+        else:
+            print('DEBUG_LLM disabled due to lack of confirmation')
+            litellm.suppress_debug_info = True
+            litellm.set_verbose = False
     else:
-        print('DEBUG_LLM disabled due to lack of confirmation')
         litellm.suppress_debug_info = True
         litellm.set_verbose = False
-else:
-    litellm.suppress_debug_info = True
-    litellm.set_verbose = False
+elif DEBUG_LLM:
+    print('DEBUG_LLM ignored because litellm is not installed')
 
 if DEBUG:
     LOG_LEVEL = 'DEBUG'
