@@ -1,4 +1,5 @@
 import os
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -11,6 +12,15 @@ class SandboxConfig(BaseModel):
         local_runtime_url: The default hostname for the local runtime. You may want to change to http://host.docker.internal for DIND environments
         base_container_image: The base container image from which to build the runtime image.
         runtime_container_image: The runtime container image to use.
+        runtime_mode: How to provide the OpenHands runtime. "image" builds or uses a
+            full runtime image. "mounted" starts the base image directly and bind-mounts
+            a prebuilt runtime bundle.
+        runtime_bundle_host_path: Host path to the prebuilt runtime bundle when
+            runtime_mode is "mounted".
+        runtime_bundle_container_path: Container path where the runtime bundle is mounted.
+        runtime_bundle_readonly: Whether the runtime bundle is mounted read-only.
+        runtime_executable: Python executable path inside the sandbox for mounted mode.
+        runtime_working_dir: Docker working directory used to start the runtime process.
         user_id: The user ID for the sandbox.
         timeout: The timeout for the default sandbox action execution.
         remote_runtime_init_timeout: The timeout for the remote runtime to start.
@@ -32,6 +42,7 @@ class SandboxConfig(BaseModel):
             For example, for specifying the base url of website for browsergym evaluation.
         browsergym_eval_env: The BrowserGym environment to use for evaluation.
             Default is None for general purpose browsing. Check evaluation/miniwob and evaluation/webarena for examples.
+        enable_mcp: Whether to start the runtime MCP router.
         platform: The platform on which the image should be built. Default is None.
         remote_runtime_resource_factor: Factor to scale the resource allocation for remote runtime.
             Must be one of [1, 2, 4, 8]. Will only be used if the runtime is remote.
@@ -53,6 +64,12 @@ class SandboxConfig(BaseModel):
         default='nikolaik/python-nodejs:python3.12-nodejs22'
     )
     runtime_container_image: str | None = Field(default=None)
+    runtime_mode: Literal['image', 'mounted'] = Field(default='image')
+    runtime_bundle_host_path: str | None = Field(default=None)
+    runtime_bundle_container_path: str = Field(default='/opt/openhands-runtime')
+    runtime_bundle_readonly: bool = Field(default=True)
+    runtime_executable: str | None = Field(default=None)
+    runtime_working_dir: str | None = Field(default=None)
     user_id: int = Field(default=os.getuid() if hasattr(os, 'getuid') else 1000)
     timeout: int = Field(default=120)
     remote_runtime_init_timeout: int = Field(default=180)
@@ -72,6 +89,7 @@ class SandboxConfig(BaseModel):
     runtime_extra_deps: str | None = Field(default=None)
     runtime_startup_env_vars: dict[str, str] = Field(default_factory=dict)
     browsergym_eval_env: str | None = Field(default=None)
+    enable_mcp: bool = Field(default=True)
     platform: str | None = Field(default=None)
     close_delay: int = Field(default=15)
     remote_runtime_resource_factor: int = Field(default=1)
@@ -112,4 +130,49 @@ class SandboxConfig(BaseModel):
     def set_default_base_image(self) -> 'SandboxConfig':
         if self.base_container_image is None:
             self.base_container_image = 'nikolaik/python-nodejs:python3.12-nodejs22'
+        return self
+
+    @model_validator(mode='after')
+    def validate_mounted_runtime(self) -> 'SandboxConfig':
+        if self.runtime_mode != 'mounted':
+            return self
+
+        if not self.runtime_bundle_host_path:
+            raise ValueError(
+                'runtime_bundle_host_path is required when sandbox.runtime_mode is "mounted"'
+            )
+        if not os.path.isabs(self.runtime_bundle_host_path):
+            raise ValueError('runtime_bundle_host_path must be an absolute host path')
+        if not os.path.isabs(self.runtime_bundle_container_path):
+            raise ValueError(
+                'runtime_bundle_container_path must be an absolute container path'
+            )
+        if self.runtime_executable is not None and not os.path.isabs(
+            self.runtime_executable
+        ):
+            raise ValueError('runtime_executable must be an absolute container path')
+        if self.runtime_working_dir is not None and not os.path.isabs(
+            self.runtime_working_dir
+        ):
+            raise ValueError('runtime_working_dir must be an absolute container path')
+        if self.runtime_extra_deps:
+            raise ValueError(
+                'runtime_extra_deps is not supported when sandbox.runtime_mode is "mounted"'
+            )
+        if self.runtime_extra_build_args:
+            raise ValueError(
+                'runtime_extra_build_args is not supported when sandbox.runtime_mode is "mounted"'
+            )
+
+        runtime_bundle_container_path = self.runtime_bundle_container_path.rstrip('/')
+        if not runtime_bundle_container_path:
+            runtime_bundle_container_path = '/'
+        self.runtime_bundle_container_path = runtime_bundle_container_path
+
+        if self.runtime_executable is None:
+            self.runtime_executable = os.path.join(
+                self.runtime_bundle_container_path, 'bin', 'python'
+            )
+        if self.runtime_working_dir is None:
+            self.runtime_working_dir = self.runtime_bundle_container_path
         return self

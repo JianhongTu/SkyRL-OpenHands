@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -37,14 +38,24 @@ class JupyterPlugin(Plugin):
         if not is_local_runtime:
             # Non-LocalRuntime
             prefix = f'su - {username} -s '
-            # cd to code repo, setup all env vars and run micromamba
-            poetry_prefix = (
-                'cd /openhands/code\n'
-                'export POETRY_VIRTUALENVS_PATH=/openhands/poetry;\n'
-                'export PYTHONPATH=/openhands/code:$PYTHONPATH;\n'
-                'export MAMBA_ROOT_PREFIX=/openhands/micromamba;\n'
-                '/openhands/micromamba/bin/micromamba run -n openhands '
-            )
+            runtime_python = os.environ.get('OPENHANDS_RUNTIME_PYTHON')
+            if runtime_python:
+                runtime_working_dir = os.environ.get(
+                    'OPENHANDS_RUNTIME_WORKING_DIR', os.getcwd()
+                )
+                env_prefix = (
+                    f'cd {shlex.quote(runtime_working_dir)}\n'
+                    f'export PYTHONPATH={shlex.quote(runtime_working_dir)}:${{PYTHONPATH:-}};\n'
+                    f'{shlex.quote(runtime_python)} -m '
+                )
+            else:
+                # cd to code repo, setup all env vars and run micromamba
+                env_prefix = (
+                    'cd /openhands/code\n'
+                    'export PYTHONPATH=/openhands/code:$PYTHONPATH;\n'
+                    'export MAMBA_ROOT_PREFIX=/openhands/micromamba;\n'
+                    '/openhands/micromamba/bin/micromamba run -n openhands '
+                )
         else:
             # LocalRuntime
             prefix = ''
@@ -53,15 +64,15 @@ class JupyterPlugin(Plugin):
                 raise ValueError(
                     'OPENHANDS_REPO_PATH environment variable is not set. '
                     'This is required for the jupyter plugin to work with LocalRuntime.'
-                )
+            )
             # The correct environment is ensured by the PATH in LocalRuntime.
-            poetry_prefix = f'cd {code_repo_path}\n'
+            env_prefix = f'cd {code_repo_path}\n'
 
         if is_windows:
             # Windows-specific command format
             jupyter_launch_command = (
                 f'cd /d "{code_repo_path}" && '
-                'poetry run jupyter kernelgateway '
+                'jupyter kernelgateway '
                 '--KernelGatewayApp.ip=0.0.0.0 '
                 f'--KernelGatewayApp.port={self.kernel_gateway_port}'
             )
@@ -104,8 +115,8 @@ class JupyterPlugin(Plugin):
             # Unix systems (Linux/macOS)
             jupyter_launch_command = (
                 f"{prefix}/bin/bash << 'EOF'\n"
-                f'{poetry_prefix}'
-                'poetry run jupyter kernelgateway '
+                f'{env_prefix}'
+                'jupyter kernelgateway '
                 '--KernelGatewayApp.ip=0.0.0.0 '
                 f'--KernelGatewayApp.port={self.kernel_gateway_port}\n'
                 'EOF'

@@ -6,8 +6,6 @@ DEFAULT_PYTHON_PREFIX = [
     'run',
     '-n',
     'openhands',
-    'poetry',
-    'run',
 ]
 
 
@@ -15,11 +13,14 @@ def get_action_execution_server_startup_command(
     server_port: int,
     plugins: list[PluginRequirement],
     app_config: AppConfig,
-    python_prefix: list[str] = DEFAULT_PYTHON_PREFIX,
+    python_prefix: list[str] | None = DEFAULT_PYTHON_PREFIX,
+    python_executable: str = 'python',
     override_user_id: int | None = None,
     override_username: str | None = None,
 ) -> list[str]:
     sandbox_config = app_config.sandbox
+    if python_prefix is None:
+        python_prefix = DEFAULT_PYTHON_PREFIX
 
     # Plugin args
     plugin_args = []
@@ -33,6 +34,10 @@ def get_action_execution_server_startup_command(
             '--browsergym-eval-env'
         ] + sandbox_config.browsergym_eval_env.split(' ')
 
+    mcp_args = []
+    if not sandbox_config.enable_mcp:
+        mcp_args = ['--disable-mcp']
+
     username = override_username or (
         'openhands' if app_config.run_as_openhands else 'root'
     )
@@ -41,8 +46,8 @@ def get_action_execution_server_startup_command(
     )
 
     base_cmd = [
-        *python_prefix,
-        'python',
+        *(python_prefix or []),
+        python_executable,
         '-u',
         '-m',
         'openhands.runtime.action_execution_server',
@@ -55,6 +60,7 @@ def get_action_execution_server_startup_command(
         '--user-id',
         str(user_id),
         *browsergym_args,
+        *mcp_args,
     ]
 
     return base_cmd

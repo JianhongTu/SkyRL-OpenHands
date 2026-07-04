@@ -148,7 +148,16 @@ class DockerRuntime(ActionExecutionClient):
                     f'Container {self.container_name} not found.',
                 )
                 raise AgentRuntimeDisconnectedError from e
-            if self.runtime_container_image is None:
+            if (
+                self.runtime_container_image is None
+                and self.config.sandbox.runtime_mode == 'mounted'
+            ):
+                if self.base_container_image is None:
+                    raise ValueError(
+                        'base_container_image is required for mounted runtime mode'
+                    )
+                self.runtime_container_image = self.base_container_image
+            elif self.runtime_container_image is None:
                 if self.base_container_image is None:
                     raise ValueError(
                         'Neither runtime container image nor base container image is set'
@@ -216,9 +225,10 @@ class DockerRuntime(ActionExecutionClient):
         """
         # Initialize volumes dictionary
         volumes: dict[str, dict[str, str]] = {}
+        custom_volumes_configured = self.config.sandbox.volumes is not None
 
         # Process volumes (comma-delimited)
-        if self.config.sandbox.volumes is not None:
+        if custom_volumes_configured:
             # Handle multiple mounts with comma delimiter
             mounts = self.config.sandbox.volumes.split(',')
 
@@ -238,10 +248,27 @@ class DockerRuntime(ActionExecutionClient):
                         f'Mount dir (sandbox.volumes): {host_path} to {container_path} with mode: {mount_mode}'
                     )
 
+        if self.config.sandbox.runtime_mode == 'mounted':
+            runtime_bundle_host_path = self.config.sandbox.runtime_bundle_host_path
+            if runtime_bundle_host_path is None:
+                raise ValueError(
+                    'runtime_bundle_host_path is required for mounted runtime mode'
+                )
+            mount_mode = 'ro' if self.config.sandbox.runtime_bundle_readonly else 'rw'
+            volumes[os.path.abspath(runtime_bundle_host_path)] = {
+                'bind': self.config.sandbox.runtime_bundle_container_path,
+                'mode': mount_mode,
+            }
+            logger.debug(
+                f'Mount dir (sandbox.runtime_bundle_host_path): {runtime_bundle_host_path} to {self.config.sandbox.runtime_bundle_container_path} with mode: {mount_mode}'
+            )
+
         # Legacy mounting with workspace_* parameters
-        elif (
+        if (
             self.config.workspace_mount_path is not None
             and self.config.workspace_mount_path_in_sandbox is not None
+            and not custom_volumes_configured
+            and self.config.workspace_mount_path not in volumes
         ):
             mount_mode = 'rw'  # Default mode
 
@@ -336,10 +363,29 @@ class DockerRuntime(ActionExecutionClient):
             f'Sandbox workspace: {self.config.workspace_mount_path_in_sandbox}',
         )
 
+        python_prefix = None
+        python_executable = 'python'
+        working_dir = '/openhands/code/'
+        if self.config.sandbox.runtime_mode == 'mounted':
+            assert self.config.sandbox.runtime_executable is not None
+            assert self.config.sandbox.runtime_working_dir is not None
+            python_prefix = []
+            python_executable = self.config.sandbox.runtime_executable
+            working_dir = self.config.sandbox.runtime_working_dir
+            environment.update(
+                {
+                    'OPENHANDS_RUNTIME_MODE': 'mounted',
+                    'OPENHANDS_RUNTIME_PYTHON': python_executable,
+                    'OPENHANDS_RUNTIME_WORKING_DIR': working_dir,
+                }
+            )
+
         command = get_action_execution_server_startup_command(
             server_port=self._container_port,
             plugins=self.plugins,
             app_config=self.config,
+            python_prefix=python_prefix,
+            python_executable=python_executable,
         )
 
         try:
@@ -350,7 +396,7 @@ class DockerRuntime(ActionExecutionClient):
                 entrypoint=[],
                 network_mode=network_mode,
                 ports=port_mapping,
-                working_dir='/openhands/code/',  # do not change this!
+                working_dir=working_dir,
                 name=self.container_name,
                 detach=True,
                 environment=environment,

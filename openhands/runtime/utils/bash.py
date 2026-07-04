@@ -1,5 +1,6 @@
 import os
 import re
+import shlex
 import time
 import traceback
 import uuid
@@ -78,8 +79,8 @@ def split_bash_commands(commands: str) -> list[str]:
 
 
 def escape_bash_special_chars(command: str) -> str:
-    r"""
-    Escapes characters that have different interpretations in bash vs python.
+    r"""Escapes characters that have different interpretations in bash vs python.
+
     Specifically handles escape sequences like \;, \|, \&, etc.
     """
     if command.strip() == '':
@@ -191,6 +192,22 @@ class BashSession:
         self.max_memory_mb = max_memory_mb
 
     def initialize(self) -> None:
+        runtime_python = os.environ.get('OPENHANDS_RUNTIME_PYTHON')
+        runtime_working_dir = os.environ.get('OPENHANDS_RUNTIME_WORKING_DIR')
+        runtime_path = None
+        if runtime_python:
+            runtime_bin = os.path.dirname(runtime_python)
+            runtime_path_parts = [runtime_bin]
+            if runtime_working_dir:
+                runtime_path_parts.append(os.path.join(runtime_working_dir, 'env/bin'))
+            runtime_path = ':'.join(runtime_path_parts)
+            os.environ['PATH'] = f'{runtime_path}:{os.environ.get("PATH", "")}'
+            if runtime_working_dir:
+                runtime_lib = os.path.join(runtime_working_dir, 'env/lib')
+                os.environ['LD_LIBRARY_PATH'] = (
+                    f'{runtime_lib}:{os.environ.get("LD_LIBRARY_PATH", "")}'
+                )
+
         self.server = libtmux.Server()
         _shell_command = '/bin/bash'
         if self.username in ['root', 'openhands']:
@@ -235,6 +252,13 @@ class BashSession:
         self.pane.send_keys(
             f'export PROMPT_COMMAND=\'export PS1="{self.PS1}"\'; export PS2=""'
         )
+        if runtime_path:
+            self.pane.send_keys(f'export PATH={shlex.quote(runtime_path)}:$PATH')
+            if runtime_working_dir:
+                runtime_lib = os.path.join(runtime_working_dir, 'env/lib')
+                self.pane.send_keys(
+                    f'export LD_LIBRARY_PATH={shlex.quote(runtime_lib)}:${{LD_LIBRARY_PATH:-}}'
+                )
         time.sleep(0.1)  # Wait for command to take effect
         self._clear_screen()
 
@@ -444,13 +468,9 @@ class BashSession:
     ) -> str:
         """Combine all outputs between PS1 matches.
 
-        Args:
-            pane_content: The full pane content containing PS1 prompts and command outputs
-            ps1_matches: List of regex matches for PS1 prompts
-            get_content_before_last_match: when there's only one PS1 match, whether to get
-                the content before the last PS1 prompt (True) or after the last PS1 prompt (False)
-        Returns:
-            Combined string of all outputs between matches
+        The pane content contains PS1 prompts and command outputs. When there is
+        only one PS1 match, get_content_before_last_match chooses whether to
+        return the content before or after the last PS1 prompt.
         """
         if len(ps1_matches) == 1:
             if get_content_before_last_match:
