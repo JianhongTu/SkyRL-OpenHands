@@ -13,3 +13,6 @@ tmp/
 
 # Local eval run outputs (raw run data, not results to track)
 evaluation/evaluation_outputs/outputs/R2E-Gym__R2E-Gym-V1-train/
+
+CLAUDE.md
+AGENTS.md
