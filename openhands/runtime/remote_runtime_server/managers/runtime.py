@@ -15,6 +15,7 @@ from aiodocker.containers import DockerContainer
 from aiodocker.types import PortInfo
 from fastapi import HTTPException
 
+from openhands.runtime.builder.docker import DockerRuntimeBuilder
 from openhands.runtime.utils import find_available_tcp_port
 from openhands.utils.async_utils import call_sync_from_async
 
@@ -34,6 +35,37 @@ class RuntimeManager:
         self._allocated_ports_in_flight = set()
         self.sync_docker_client = docker.from_env(timeout=300)
         self._port_lock = asyncio.Lock()
+        self._image_builder: DockerRuntimeBuilder | None = None
+        self._image_pull_locks: dict[str, asyncio.Lock] = {}
+
+    def _get_image_builder(self) -> DockerRuntimeBuilder:
+        if self._image_builder is None:
+            self._image_builder = DockerRuntimeBuilder(self.sync_docker_client)
+        return self._image_builder
+
+    def _ensure_image_sync(
+        self, image_name: str, pull_from_repo: bool
+    ) -> dict | None:
+        image_exists = self._get_image_builder().image_exists(
+            image_name, pull_from_repo
+        )
+        if not image_exists:
+            return None
+
+        image = self.sync_docker_client.images.get(image_name)
+        return {
+            'upload_time': image.attrs['Created'],
+            'image_size_bytes': image.attrs['Size'],
+        }
+
+    async def ensure_image(
+        self, image_name: str, pull_from_repo: bool = True
+    ) -> dict | None:
+        lock = self._image_pull_locks.setdefault(image_name, asyncio.Lock())
+        async with lock:
+            return await call_sync_from_async(
+                self._ensure_image_sync, image_name, pull_from_repo
+            )
 
     async def _get_ports_in_use_docker(self, docker_client: aiodocker.Docker) -> set:
         containers = await docker_client.containers.list()

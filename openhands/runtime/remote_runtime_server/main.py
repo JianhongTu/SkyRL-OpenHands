@@ -1,29 +1,28 @@
 import argparse
+import asyncio
 import base64
 import os
 import shutil
 import tarfile
 import tempfile
-import uuid
-from typing import Optional
 import time
+import uuid
+from contextlib import asynccontextmanager
+from typing import Optional
 
-import docker
-import asyncio
 import aiodocker
 import aiohttp
 from fastapi import (
     BackgroundTasks,
+    Depends,
     FastAPI,
     File,
     Form,
     Header,
     HTTPException,
-    UploadFile,
     Request,
-    Depends
+    UploadFile,
 )
-from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import resolve_public_host, settings
@@ -33,7 +32,7 @@ from .models import (
     StartRequest,
     StopRequest,
 )
-from .utils import setup_pool_and_host, get_logger
+from .utils import get_logger, setup_pool_and_host
 
 _task_lock = asyncio.Lock()
 active_concurrent_tasks = 0
@@ -223,23 +222,19 @@ async def get_registry_prefix(api_key: str = Header(None, alias='X-API-Key')):
 @app.get('/image_exists')
 async def check_image_exists(
     image: str,
+    pull_from_repo: bool = True,
     api_key: str = Header(None, alias='X-API-Key'),
-    docker_client: aiodocker.Docker = Depends(get_docker_client)
 ):
-    """Check if an image exists in the registry."""
+    """Check for an image locally and optionally pull it from its registry."""
     await verify_api_key(api_key)
-    try:
-        image_info = await docker_client.images.inspect(image)
+    image_info = await runtime_manager.ensure_image(image, pull_from_repo)
+    if image_info is not None:
         return {
             'exists': True,
-            'image': {
-                'upload_time': image_info['Created'],
-                'image_size_bytes': image_info['Size'],
-            },
+            'image': image_info,
             "url": f"http://{settings.PUBLIC_HOST}:{settings.PORT}",
         }
-    except (docker.errors.ImageNotFound, aiodocker.exceptions.DockerError):
-        return {'exists': False,  "url": f"http://{settings.PUBLIC_HOST}:{settings.PORT}"}
+    return {'exists': False, "url": f"http://{settings.PUBLIC_HOST}:{settings.PORT}"}
 
 
 @app.post('/build')

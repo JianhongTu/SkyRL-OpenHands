@@ -17,6 +17,7 @@ from openhands.utils.shutdown_listener import (
 )
 
 BUILD_INITIATE_TIMEOUT = 300
+IMAGE_PULL_TIMEOUT = 30 * 60
 
 
 class RemoteRuntimeBuilder(RuntimeBuilder):
@@ -141,13 +142,20 @@ class RemoteRuntimeBuilder(RuntimeBuilder):
 
     def image_exists(self, image_name: str, pull_from_repo: bool = True) -> bool:
         """Checks if an image exists in the remote registry using the /image_exists endpoint."""
-        params = {'image': image_name}
+        params = {
+            'image': image_name,
+            'pull_from_repo': pull_from_repo,
+        }
         response = send_request(
             self.session,
             'GET',
             f'{self.api_url}/image_exists',
             params=params,
-            timeout=self.timeout,
+            timeout=(
+                max(self.timeout, IMAGE_PULL_TIMEOUT)
+                if pull_from_repo
+                else self.timeout
+            ),
         )
 
         if response.status_code != 200:

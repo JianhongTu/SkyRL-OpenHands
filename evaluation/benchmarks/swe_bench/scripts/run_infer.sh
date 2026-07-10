@@ -91,7 +91,7 @@ fi
 
 function run_eval() {
   local eval_note="${1}"
-  COMMAND="uv run python evaluation/benchmarks/swe_bench/run_builds_swesmith.py \
+  COMMAND="uv run python evaluation/benchmarks/swe_bench/run_infer.py \
     --agent-cls $AGENT \
     --llm-config $MODEL_CONFIG \
     --max-iterations $MAX_ITER \
