@@ -1,18 +1,18 @@
 
-import uuid
-import os
-from typing import Dict, Optional, List
-import time
-
-import aiohttp
 import asyncio
+import os
+import time
+import uuid
+from copy import deepcopy
+from typing import Dict, List, Optional
+
 import aiodocker
-from aiodocker.types import PortInfo
-from aiodocker.containers import DockerContainer
+import aiohttp
 import docker
 import requests
 import tenacity
-from copy import deepcopy
+from aiodocker.containers import DockerContainer
+from aiodocker.types import PortInfo
 from fastapi import HTTPException
 
 from openhands.runtime.utils import find_available_tcp_port
@@ -20,9 +20,8 @@ from openhands.utils.async_utils import call_sync_from_async
 
 from ..config import settings
 from ..models import RuntimeMount, StartRequest
-from ..utils  import get_logger
+from ..utils import get_logger
 from .builder import BuildManager
-
 
 logger = get_logger(__name__)
 class RuntimeManager:
@@ -115,6 +114,55 @@ class RuntimeManager:
                 return True
         return False
 
+    def _validate_runtime_bundle(
+        self, host_path: str, container_path: str
+    ) -> None:
+        if not os.path.isdir(host_path):
+            raise HTTPException(
+                status_code=400,
+                detail=f'Runtime bundle host path is not a directory: {host_path}',
+            )
+
+        required_executables = (
+            'bin/python',
+            'env/bin/python',
+            'tools/bin/search',
+            'tools/bin/str_replace_editor',
+        )
+        invalid_executables = [
+            relative_path
+            for relative_path in required_executables
+            if not os.path.isfile(os.path.join(host_path, relative_path))
+            or not os.access(os.path.join(host_path, relative_path), os.X_OK)
+        ]
+        if invalid_executables:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    'Runtime bundle is missing required executable files: '
+                    + ', '.join(invalid_executables)
+                ),
+            )
+
+        metadata_path = os.path.join(host_path, 'meta/container_path')
+        try:
+            with open(metadata_path, encoding='utf-8') as metadata_file:
+                bundle_container_path = metadata_file.read().strip()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f'Runtime bundle metadata is unreadable: {metadata_path}: {exc}',
+            ) from exc
+
+        if bundle_container_path != container_path:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'Runtime bundle was built for container path '
+                    f'{bundle_container_path}, not {container_path}'
+                ),
+            )
+
     def _get_runtime_mount_binds(self, runtime_mounts: List[RuntimeMount]) -> List[str]:
         if not runtime_mounts:
             return []
@@ -144,11 +192,13 @@ class RuntimeManager:
                     status_code=403,
                     detail=f'Runtime mount host path is not allowed: {mount.host_path}',
                 )
+            self._validate_runtime_bundle(host_path, mount.container_path)
             binds.append(f'{host_path}:{mount.container_path}:{mode}')
         return binds
 
 
     async def start_runtime(self, docker_client: aiodocker.Docker, request: StartRequest) -> Dict:
+        binds = self._get_runtime_mount_binds(request.runtime_mounts)
         runtime_id = str(uuid.uuid4())
         container_name = f'{settings.CONTAINER_NAME_PREFIX}{request.session_id}'
         resource_factor = request.resource_factor
@@ -194,7 +244,6 @@ class RuntimeManager:
             host_config = {k: v for k, v in host_config.items() if v is not None}
 
             volumes = None
-            binds = self._get_runtime_mount_binds(request.runtime_mounts)
             for mount in request.runtime_mounts:
                 if volumes is None:
                     volumes = {}

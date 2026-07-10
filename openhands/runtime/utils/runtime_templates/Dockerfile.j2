@@ -246,7 +246,11 @@ RUN if [ -d /openhands/code/openhands ]; then rm -rf /openhands/code/openhands; 
 COPY ./code/pyproject.toml ./code/uv.lock /openhands/code/
 
 COPY ./code/openhands /openhands/code/openhands
-RUN chmod a+rwx /openhands/code/openhands/__init__.py
+RUN chmod a+rwx /openhands/code/openhands/__init__.py && \
+    chmod +x /openhands/code/openhands/runtime/tools/search.py \
+        /openhands/code/openhands/runtime/tools/str_replace_editor.py && \
+    ln -sf /openhands/code/openhands/runtime/tools/search.py /openhands/bin/search && \
+    ln -sf /openhands/code/openhands/runtime/tools/str_replace_editor.py /openhands/bin/str_replace_editor
 
 {{ setup_vscode_server() }}
 

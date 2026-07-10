@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 from typing import Any, Literal
+from zipfile import BadZipFile, ZipFile
 
 import pandas as pd
 import toml
@@ -49,11 +50,10 @@ from openhands.core.config import (
 from openhands.core.logger import openhands_logger as logger
 from openhands.core.main import create_runtime, run_controller
 from openhands.critic import AgentFinishedCritic
-from openhands.events.action import CmdRunAction, FileReadAction, MessageAction
+from openhands.events.action import CmdRunAction, MessageAction
 from openhands.events.observation import (
     CmdOutputObservation,
     ErrorObservation,
-    FileReadObservation,
 )
 from openhands.events.serialization.event import event_from_dict, event_to_dict
 from openhands.runtime.base import Runtime
@@ -743,7 +743,7 @@ def complete_runtime(
     )
 
     n_retries = 0
-    git_patch = None
+    patch_ready = False
     while n_retries < 5:
         action = CmdRunAction(
             command=f'git diff --no-color --cached {instance["base_commit"]} > patch.diff'
@@ -755,28 +755,8 @@ def complete_runtime(
         n_retries += 1
         if isinstance(obs, CmdOutputObservation):
             if obs.exit_code == 0:
-                # Read the patch file
-                action = FileReadAction(path='patch.diff')
-                action.set_hard_timeout(max(300 + 100 * n_retries, 600))
-                logger.info(action, extra={'msg_type': 'ACTION'})
-                obs = runtime.run_action(action)
-                logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-                if isinstance(obs, FileReadObservation):
-                    git_patch = obs.content
-                    break
-                elif isinstance(obs, ErrorObservation):
-                    # Fall back to cat "patch.diff" to get the patch
-                    assert 'File could not be decoded as utf-8' in obs.content
-                    action = CmdRunAction(command='cat patch.diff')
-                    action.set_hard_timeout(max(300 + 100 * n_retries, 600))
-                    logger.info(action, extra={'msg_type': 'ACTION'})
-                    obs = runtime.run_action(action)
-                    assert isinstance(obs, CmdOutputObservation) and obs.exit_code == 0
-                    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
-                    git_patch = obs.content
-                    break
-                else:
-                    assert_and_raise(False, f'Unexpected observation type: {str(obs)}')
+                patch_ready = True
+                break
             else:
                 logger.info('Failed to get git diff, retrying...')
                 sleep_if_should_continue(10)
@@ -786,7 +766,32 @@ def complete_runtime(
         else:
             assert_and_raise(False, f'Unexpected observation type: {str(obs)}')
 
-    assert_and_raise(git_patch is not None, 'Failed to get git diff (None)')
+    assert_and_raise(patch_ready, 'Failed to create git diff')
+
+    patch_dir = '/tmp/openhands-eval-patch'
+    action = CmdRunAction(
+        command=(
+            f'rm -rf {patch_dir} && mkdir -p {patch_dir} && '
+            f'cp patch.diff {patch_dir}/patch.diff'
+        )
+    )
+    action.set_hard_timeout(600)
+    logger.info(action, extra={'msg_type': 'ACTION'})
+    obs = runtime.run_action(action)
+    logger.info(obs, extra={'msg_type': 'OBSERVATION'})
+    assert_and_raise(
+        isinstance(obs, CmdOutputObservation) and obs.exit_code == 0,
+        f'Failed to stage git patch for download: {str(obs)}',
+    )
+
+    patch_archive = runtime.copy_from(patch_dir)
+    try:
+        with ZipFile(patch_archive) as archive:
+            git_patch = archive.read('patch.diff').decode('utf-8')
+    except (BadZipFile, KeyError, OSError, UnicodeDecodeError) as exc:
+        assert_and_raise(False, f'Failed to download git patch: {exc}')
+    finally:
+        patch_archive.unlink(missing_ok=True)
 
     # Remove binary diffs from the patch
     git_patch = remove_binary_diffs(git_patch)

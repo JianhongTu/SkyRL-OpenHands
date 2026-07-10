@@ -194,12 +194,16 @@ class BashSession:
     def initialize(self) -> None:
         runtime_python = os.environ.get('OPENHANDS_RUNTIME_PYTHON')
         runtime_working_dir = os.environ.get('OPENHANDS_RUNTIME_WORKING_DIR')
+        shell_path = os.environ.get('PATH', '')
+        shell_ld_library_path = os.environ.get('LD_LIBRARY_PATH')
+        shell_tools_path = None
         runtime_path = None
         if runtime_python:
             runtime_bin = os.path.dirname(runtime_python)
             runtime_path_parts = [runtime_bin]
             if runtime_working_dir:
                 runtime_path_parts.append(os.path.join(runtime_working_dir, 'env/bin'))
+                shell_tools_path = os.path.join(runtime_working_dir, 'tools/bin')
             runtime_path = ':'.join(runtime_path_parts)
             os.environ['PATH'] = f'{runtime_path}:{os.environ.get("PATH", "")}'
             if runtime_working_dir:
@@ -253,11 +257,14 @@ class BashSession:
             f'export PROMPT_COMMAND=\'export PS1="{self.PS1}"\'; export PS2=""'
         )
         if runtime_path:
-            self.pane.send_keys(f'export PATH={shlex.quote(runtime_path)}:$PATH')
-            if runtime_working_dir:
-                runtime_lib = os.path.join(runtime_working_dir, 'env/lib')
+            if shell_tools_path:
+                shell_path = f'{shell_tools_path}:{shell_path}'
+            self.pane.send_keys(f'export PATH={shlex.quote(shell_path)}')
+            if shell_ld_library_path is None:
+                self.pane.send_keys('unset LD_LIBRARY_PATH')
+            else:
                 self.pane.send_keys(
-                    f'export LD_LIBRARY_PATH={shlex.quote(runtime_lib)}:${{LD_LIBRARY_PATH:-}}'
+                    f'export LD_LIBRARY_PATH={shlex.quote(shell_ld_library_path)}'
                 )
         time.sleep(0.1)  # Wait for command to take effect
         self._clear_screen()

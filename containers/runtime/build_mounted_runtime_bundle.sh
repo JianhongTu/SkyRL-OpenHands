@@ -58,7 +58,23 @@ docker run --rm \
     "${CONTAINER_PATH}/env/bin/uv" pip install --python "${CONTAINER_PATH}/env/bin/python" /src --no-deps
     find "${CONTAINER_PATH}/env/lib" -path "*/site-packages/distutils-precedence.pth" -delete
 
-    mkdir -p "${CONTAINER_PATH}/bin" "${CONTAINER_PATH}/meta"
+    mkdir -p "${CONTAINER_PATH}/bin" "${CONTAINER_PATH}/meta" \
+      "${CONTAINER_PATH}/tools/bin"
+    cp /src/openhands/runtime/tools/search.py \
+      /src/openhands/runtime/tools/str_replace_editor.py \
+      "${CONTAINER_PATH}/tools/"
+
+    cat > "${CONTAINER_PATH}/tools/bin/openhands-tool" <<'EOF'
+#!/usr/bin/env sh
+tool_bin=\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)
+runtime_root=\$(CDPATH= cd -- "\${tool_bin}/../.." && pwd)
+tool_name=\$(basename -- "\$0")
+exec "\${runtime_root}/bin/python" "\${runtime_root}/tools/\${tool_name}.py" "\$@"
+EOF
+    chmod +x "${CONTAINER_PATH}/tools/bin/openhands-tool"
+    ln -s openhands-tool "${CONTAINER_PATH}/tools/bin/search"
+    ln -s openhands-tool "${CONTAINER_PATH}/tools/bin/str_replace_editor"
+
     cat > "${CONTAINER_PATH}/bin/python" <<EOF
 #!/usr/bin/env sh
 export LD_LIBRARY_PATH="${CONTAINER_PATH}/env/lib:\${LD_LIBRARY_PATH:-}"

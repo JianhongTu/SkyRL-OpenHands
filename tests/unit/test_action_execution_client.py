@@ -1,6 +1,6 @@
 import shlex
 
-from openhands.events.action import FileReadAction
+from openhands.events.action import CmdRunAction, FileReadAction
 from openhands.events.action.search import SearchAction
 from openhands.runtime.impl.action_execution.action_execution_client import (
     ActionExecutionClient,
@@ -12,21 +12,20 @@ class CapturingActionExecutionClient(ActionExecutionClient):
         pass
 
 
-def _capturing_client() -> tuple[ActionExecutionClient, list[str]]:
+def _capturing_client() -> tuple[ActionExecutionClient, list[object]]:
     client = object.__new__(CapturingActionExecutionClient)
-    commands: list[str] = []
-    client.send_action_for_execution = lambda action: commands.append(
-        action.command
-    ) or action
-    return client, commands
+    actions: list[object] = []
+    client.send_action_for_execution = lambda action: actions.append(action) or action
+    return client, actions
 
 
 def test_read_quotes_path_for_str_replace_editor_command():
-    client, commands = _capturing_client()
+    client, actions = _capturing_client()
 
     client.read(FileReadAction(path="/tmp/a b/quote'"))
 
-    assert shlex.split(commands[0]) == [
+    assert isinstance(actions[0], CmdRunAction)
+    assert shlex.split(actions[0].command) == [
         'str_replace_editor',
         'view',
         '--path',
@@ -35,7 +34,7 @@ def test_read_quotes_path_for_str_replace_editor_command():
 
 
 def test_search_quotes_arguments_and_forwards_line_nums():
-    client, commands = _capturing_client()
+    client, actions = _capturing_client()
 
     client.search(
         SearchAction(
@@ -45,7 +44,7 @@ def test_search_quotes_arguments_and_forwards_line_nums():
         )
     )
 
-    assert shlex.split(commands[0]) == [
+    assert shlex.split(actions[0].command) == [
         'search',
         '--file_path_or_pattern',
         '/tmp/a b.py',

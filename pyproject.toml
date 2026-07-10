@@ -128,7 +128,11 @@ runtime-core = [
   "libtmux>=0.37,<0.40",
   "psutil",
   "tenacity>=8.5,<10.0",
+  "openai",
   "openhands-aci==0.2.13",
+  "chardet",
+  "networkx",
+  "rank-bm25>=0.2.0,<1.0.0",
   "python-docx",
   "PyPDF2",
   "python-pptx",
@@ -137,6 +141,9 @@ runtime-core = [
   "mcpm==1.9.0",
 ]
 runtime = [
+  "chardet",
+  "networkx",
+  "rank-bm25>=0.2.0,<1.0.0",
   "jupyterlab",
   "notebook",
   "jupyter-kernel-gateway",

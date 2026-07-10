@@ -71,7 +71,8 @@ def process_git_patch(patch):
 
 def get_config(metadata: EvalMetadata, instance: pd.Series) -> AppConfig:
     # We use a different instance image for the each instance of swe-bench eval
-    base_container_image = get_instance_docker_image(instance['instance_id'])
+    data_source = (metadata.dataset or '').lower()
+    base_container_image = get_instance_docker_image(instance, data_source)
     logger.info(
         f'Using instance container image: {base_container_image}. '
         f'Please make sure this image exists. '
