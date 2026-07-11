@@ -226,7 +226,7 @@ def get_instance_docker_image(instance, data_source) -> str:
     image_name = image_name.replace(
         '__', '_s_'
     )  # to comply with docker image naming convention
-    return (DOCKER_IMAGE_PREFIX.rstrip('/') + '/' + image_name).lower()
+    return (DEFAULT_DOCKER_IMAGE_PREFIX.rstrip('/') + '/' + image_name).lower()
 
 
 def get_config(
